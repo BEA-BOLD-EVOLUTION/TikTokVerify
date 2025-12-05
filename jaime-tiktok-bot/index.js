@@ -26,13 +26,44 @@ const client = new Client({
 const PREFIX = process.env.BOT_PREFIX || '!';
 const VERIFIED_ROLE_ID = process.env.VERIFIED_ROLE_ID;
 
-// In-memory store of pending verifications: { discordId: { username, code } }
+// In-memory store of pending verifications: { discordId: { username, code, guildId } }
 const pendingVerifications = new Map();
 
-// Utility: generate a short verification code
-function generateCode() {
+// Cache for server prefixes: { guildId: prefix }
+const serverPrefixes = new Map();
+
+// Get a short prefix from a name (first word, uppercase, max 10 chars)
+function getNamePrefix(name) {
+  // Get first word, remove special characters, uppercase
+  const clean = name.split(/\s+/)[0].replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  return clean.substring(0, 10) || 'VERIFY';
+}
+
+// Get or fetch the server's verification prefix
+async function getServerPrefix(guild) {
+  if (serverPrefixes.has(guild.id)) {
+    return serverPrefixes.get(guild.id);
+  }
+  
+  try {
+    // Try to get owner's display name
+    const owner = await guild.fetchOwner();
+    const prefix = getNamePrefix(owner.displayName || owner.user.username);
+    serverPrefixes.set(guild.id, prefix);
+    return prefix;
+  } catch (err) {
+    // Fall back to server name
+    const prefix = getNamePrefix(guild.name);
+    serverPrefixes.set(guild.id, prefix);
+    return prefix;
+  }
+}
+
+// Utility: generate a short verification code with server-specific prefix
+async function generateCode(guild) {
+  const prefix = await getServerPrefix(guild);
   const num = Math.floor(10000 + Math.random() * 90000);
-  return `JAIME-${num}`;
+  return `${prefix}-${num}`;
 }
 
 // TikTok bio fetcher with cache-busting for mobile app sync issues
@@ -232,10 +263,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
           .getTextInputValue('tiktok_username')
           .trim();
 
-        const code = generateCode();
+        const code = await generateCode(interaction.guild);
         pendingVerifications.set(interaction.user.id, {
           username: username.replace(/^@/, ''),
           code,
+          guildId: interaction.guild.id,
         });
 
         const checkButton = new ButtonBuilder()
