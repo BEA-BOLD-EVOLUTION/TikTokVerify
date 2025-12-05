@@ -328,7 +328,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const row = new ActionRowBuilder().addComponents(continueButton);
 
         await interaction.reply({
-          content: `🔐 **Step 1: Add this code to your TikTok bio**\n\nYour unique verification code:\n\`\`\`\n${code}\n\`\`\`\n\n**Instructions:**\n1. Open TikTok and go to your profile\n2. Tap "Edit profile"\n3. Add the code above anywhere in your bio\n4. Save your profile\n5. Click the button below\n\n⏳ You can remove the code after verification is complete.`,
+          content: `🔐 **Step 1: Add this code to your TikTok bio**\n\nYour unique verification code:\n\`\`\`\n${code}\n\`\`\`\n\n**Instructions:**\n1. Open TikTok and go to your profile\n2. Tap "Edit profile"\n3. Add the code at the **beginning** of your bio\n4. Save your profile\n5. Click the button below\n\n⏳ You can remove the code after verification is complete.`,
           components: [row],
           ephemeral: true,
         });
