@@ -483,18 +483,18 @@
 
     <nav>
         <div class="nav-container">
-            <a href="#" class="logo" onclick="showSection('home')">
+            <a href="#home" class="logo" onclick="showSection('home', event)">
                 <span class="logo-icon">💀</span>
                 <span>Jaime Bot</span>
             </a>
             <button class="mobile-menu-btn" onclick="toggleMobileMenu()">☰</button>
             <div class="nav-links" id="navLinks">
-                <a href="#" onclick="showSection('home')" class="active" id="nav-home">Home</a>
-                <a href="#" onclick="showSection('about')" id="nav-about">About</a>
-                <a href="#" onclick="showSection('howto')" id="nav-howto">How To</a>
-                <a href="#" onclick="showSection('terms')" id="nav-terms">Terms</a>
-                <a href="#" onclick="showSection('privacy')" id="nav-privacy">Privacy</a>
-                <a href="#" onclick="showSection('license')" id="nav-license">License</a>
+                <a href="#home" onclick="showSection('home', event)" class="active" id="nav-home">Home</a>
+                <a href="#about" onclick="showSection('about', event)" id="nav-about">About</a>
+                <a href="#howto" onclick="showSection('howto', event)" id="nav-howto">How To</a>
+                <a href="#terms" onclick="showSection('terms', event)" id="nav-terms">Terms</a>
+                <a href="#privacy" onclick="showSection('privacy', event)" id="nav-privacy">Privacy</a>
+                <a href="#license" onclick="showSection('license', event)" id="nav-license">License</a>
                 <a href="https://discord.com/api/oauth2/authorize?client_id=1446313791108419594&permissions=268698648&scope=bot%20applications.commands" class="nav-cta" target="_blank">Add to Discord</a>
             </div>
         </div>
@@ -514,7 +514,7 @@
                     <a href="https://discord.com/api/oauth2/authorize?client_id=1446313791108419594&permissions=268698648&scope=bot%20applications.commands" class="btn btn-primary" target="_blank">
                         <span>🚀</span> Add to Discord
                     </a>
-                    <a href="#" class="btn btn-secondary" onclick="showSection('howto')">
+                    <a href="#howto" class="btn btn-secondary" onclick="showSection('howto', event)">
                         <span>📖</span> How It Works
                     </a>
                 </div>
@@ -786,15 +786,15 @@
             </div>
             <div class="footer-section">
                 <h4>Navigation</h4>
-                <a href="#" onclick="showSection('home')">Home</a>
-                <a href="#" onclick="showSection('about')">About</a>
-                <a href="#" onclick="showSection('howto')">How To</a>
+                <a href="#home" onclick="showSection('home', event)">Home</a>
+                <a href="#about" onclick="showSection('about', event)">About</a>
+                <a href="#howto" onclick="showSection('howto', event)">How To</a>
             </div>
             <div class="footer-section">
                 <h4>Legal</h4>
-                <a href="#" onclick="showSection('terms')">Terms of Service</a>
-                <a href="#" onclick="showSection('privacy')">Privacy Policy</a>
-                <a href="#" onclick="showSection('license')">License</a>
+                <a href="#terms" onclick="showSection('terms', event)">Terms of Service</a>
+                <a href="#privacy" onclick="showSection('privacy', event)">Privacy Policy</a>
+                <a href="#license" onclick="showSection('license', event)">License</a>
             </div>
             <div class="footer-section">
                 <h4>Connect</h4>
@@ -808,7 +808,9 @@
     </footer>
 
     <script>
-        function showSection(sectionId) {
+        function showSection(sectionId, event) {
+            if (event) event.preventDefault();
+            
             // Hide all sections
             document.querySelectorAll('.content-section').forEach(section => {
                 section.classList.remove('active');
@@ -829,6 +831,9 @@
 
             // Close mobile menu
             document.getElementById('navLinks').classList.remove('show');
+            
+            // Update URL hash
+            history.pushState(null, '', '#' + sectionId);
         }
 
         function toggleMobileMenu() {
@@ -839,6 +844,14 @@
         window.addEventListener('popstate', () => {
             const hash = window.location.hash.slice(1) || 'home';
             showSection(hash);
+        });
+        
+        // Handle initial hash on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            const hash = window.location.hash.slice(1);
+            if (hash && document.getElementById(hash)) {
+                showSection(hash);
+            }
         });
     </script>
 </body>
