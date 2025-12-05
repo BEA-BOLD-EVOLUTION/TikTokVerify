@@ -1,13 +1,24 @@
-# Jaime TikTok Verification Bot
+# TikTok Verification Bot
 
-A Discord bot that verifies users' TikTok accounts by checking for a unique code in their TikTok bio.
+A Discord bot that verifies users' TikTok accounts by checking for a unique code in their TikTok bio. Perfect for communities that want to link Discord members to their TikTok profiles.
 
 ## Features
 
-- Users click a "Verify TikTok" button to start verification
-- Bot generates a unique code (e.g., `JAIME-12345`)
-- User adds the code to their TikTok bio temporarily
-- Bot checks the TikTok profile and assigns the "Verified Viewer" role if the code is found
+- 🔐 **One-click verification** - Users click "Verify TikTok" to start
+- 🎯 **Unique codes** - Bot generates server-specific codes (e.g., `JAIME-12345`)
+- ✅ **Automatic role assignment** - Verified users get a role automatically
+- 📋 **Verified users list** - Admins can view and export all verified users
+- 💾 **Persistent storage** - Verified users are saved to JSON file
+- 🌐 **24/7 hosting ready** - Designed for Railway, Heroku, or any Node.js host
+
+## How Verification Works
+
+1. User clicks **"Verify TikTok"** button
+2. Bot shows a unique verification code
+3. User adds the code to the **beginning** of their TikTok bio
+4. User clicks **"I Added the Code"** and enters their TikTok profile link
+5. Bot checks their bio for the code
+6. If found, user receives the **Verified** role and is saved to the database
 
 ---
 
@@ -113,16 +124,18 @@ You should see: `Logged in as YourBotName#1234`
 | Command | Description |
 |---------|-------------|
 | `!setup-verify` | Creates the verification panel in the current channel (Admin only) |
+| `!verified-list` | Shows all verified users with their TikTok profiles |
+| `!verified-export` | Exports verified users as a JSON file |
 
 ### User Flow
 
 1. User clicks the **"Verify TikTok"** button
-2. A modal appears asking for their TikTok username
-3. Bot provides a unique verification code
-4. User adds the code to their TikTok bio
-5. User clicks **"I Added the Code"**
+2. Bot shows their unique verification code (e.g., `JAIME-12345`)
+3. User adds the code to the **beginning** of their TikTok bio
+4. User clicks **"I Added the Code"**
+5. User enters their TikTok profile link in the modal
 6. Bot checks their TikTok bio for the code
-7. If found, user receives the **Verified Viewer** role
+7. If found, user receives the **Verified** role and is saved to the database
 
 ---
 
@@ -148,12 +161,17 @@ You should see: `Logged in as YourBotName#1234`
 
 ```
 jaime-tiktok-bot/
-├── index.js          # Main bot code
-├── package.json      # Dependencies
-├── .env              # Environment variables (DO NOT COMMIT)
-├── .env.example      # Example environment file
-├── .gitignore        # Git ignore rules
-└── README.md         # This file
+├── index.js            # Main bot code
+├── package.json        # Dependencies
+├── server.js           # Express server for web dashboard
+├── index.html          # Website landing page
+├── privacy.html        # Privacy policy
+├── terms.html          # Terms of service
+├── verified-users.json # Saved verified users (auto-created)
+├── .env                # Environment variables (DO NOT COMMIT)
+├── vercel.json         # Vercel deployment config
+├── images/             # Logo and screenshots
+└── README.md           # This file
 ```
 
 ---
