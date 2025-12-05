@@ -554,6 +554,7 @@
                 <a href="#home" onclick="showSection('home', event)" class="active" id="nav-home">Home</a>
                 <a href="#about" onclick="showSection('about', event)" id="nav-about">About</a>
                 <a href="#howto" onclick="showSection('howto', event)" id="nav-howto">How To</a>
+                <a href="#modguide" onclick="showSection('modguide', event)" id="nav-modguide">Mod Guide</a>
                 <a href="#terms" onclick="showSection('terms', event)" id="nav-terms">Terms</a>
                 <a href="#privacy" onclick="showSection('privacy', event)" id="nav-privacy">Privacy</a>
                 <a href="#license" onclick="showSection('license', event)" id="nav-license">License</a>
@@ -816,6 +817,108 @@
         <p>We may update this Privacy Policy from time to time. Changes will be reflected by updating the "Last Updated" date.</p>
     </section>
 
+    <!-- Mod Guide Section -->
+    <section id="modguide" class="content-section">
+        <h1>🛡️ Mod Manual — Quick Guide</h1>
+        <p class="subtitle">Everything moderators need to know</p>
+
+        <h2>Server Structure</h2>
+        <ul>
+            <li>New members should only see: <code>#verify-here</code></li>
+            <li>After verification they see: all main channels</li>
+        </ul>
+
+        <h2>Roles</h2>
+        <ul>
+            <li><code>@everyone</code> = unverified</li>
+            <li><code>Verified</code> = full access</li>
+            <li><code>Mods</code> = staff</li>
+            <li><code>TikTok Verify Bot</code> = verification bot</li>
+        </ul>
+
+        <div class="warning-box">
+            <h3>⚠️ Role Order (DO NOT CHANGE)</h3>
+            <ol>
+                <li>TikTok Verify Bot</li>
+                <li>Verified</li>
+                <li>@everyone</li>
+            </ol>
+        </div>
+
+        <h2>How Verification Works</h2>
+        <ol>
+            <li>User joins server</li>
+            <li>User sees only <code>#verify-here</code></li>
+            <li>User clicks <strong>Verify TikTok</strong></li>
+            <li>Bot gives them a code</li>
+            <li>User puts the code at the <strong>START</strong> of their TikTok bio</li>
+            <li>User submits their TikTok profile link</li>
+            <li>Bot checks the bio for the code</li>
+            <li>If it matches, bot gives them the <strong>Verified</strong> role</li>
+        </ol>
+
+        <h2>Channel Permissions</h2>
+        
+        <div class="highlight-box">
+            <h3>For <code>#verify-here</code>:</h3>
+            <ul>
+                <li><code>@everyone</code>: View Channel = ✅ ON</li>
+                <li><code>@everyone</code>: Send Messages = ✅ ON</li>
+                <li><code>@everyone</code>: Use Application Commands = ✅ ON</li>
+                <li>Bot: can View Channel, Send Messages, Embed Links, Use Application Commands</li>
+            </ul>
+        </div>
+
+        <div class="highlight-box">
+            <h3>For ALL other channels/categories:</h3>
+            <ul>
+                <li><code>@everyone</code>: View Channel = ❌ OFF</li>
+                <li><code>Verified</code>: View Channel = ✅ ON, Send Messages = ✅ ON</li>
+            </ul>
+        </div>
+
+        <div class="warning-box">
+            <p><strong>⚠️ Important:</strong> If <code>@everyone</code> has View Channel = ON on any category, unverified users will see too much.</p>
+        </div>
+
+        <h2>Admin Bot Commands</h2>
+        <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+            <tr style="background: var(--bg-card); border-bottom: 1px solid var(--border);">
+                <th style="padding: 12px; text-align: left;">Command</th>
+                <th style="padding: 12px; text-align: left;">Description</th>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 12px;"><code>!verified-list</code></td>
+                <td style="padding: 12px;">Shows all verified users and their TikTok profiles</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 12px;"><code>!verified-export</code></td>
+                <td style="padding: 12px;">Exports CSV with: Discord ID, Discord Tag, TikTok Username, Verification time</td>
+            </tr>
+        </table>
+
+        <h2>Mod Quick Responses</h2>
+
+        <div class="highlight-box">
+            <h3>Verification Help:</h3>
+            <p><em>"Make sure your TikTok bio starts with the code, your profile is public, and you used your full profile link. After updating your bio, wait a few seconds and submit again."</em></p>
+        </div>
+
+        <div class="highlight-box">
+            <h3>Manual Verify Note:</h3>
+            <p><em>"I have manually approved your verification. Welcome! If the bot has issues again, let staff know."</em></p>
+        </div>
+
+        <h2>🚫 DO NOT:</h2>
+        <ul>
+            <li>❌ Move the bot role</li>
+            <li>❌ Change bot role permissions</li>
+            <li>❌ Edit <code>#verify-here</code> permissions</li>
+            <li>❌ Change or delete the <code>Verified</code> role</li>
+            <li>❌ Turn on View Channel for <code>@everyone</code> on categories</li>
+        </ul>
+    </section>
+
     <!-- License Section -->
     <section id="license" class="content-section">
         <h1>📄 License</h1>
@@ -862,6 +965,7 @@
                 <a href="#home" onclick="showSection('home', event)">Home</a>
                 <a href="#about" onclick="showSection('about', event)">About</a>
                 <a href="#howto" onclick="showSection('howto', event)">How To</a>
+                <a href="#modguide" onclick="showSection('modguide', event)">Mod Guide</a>
             </div>
             <div class="footer-section">
                 <h4>Legal</h4>
