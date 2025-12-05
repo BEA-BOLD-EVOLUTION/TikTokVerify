@@ -16,6 +16,10 @@
     {
       "src": "privacy.html",
       "use": "@vercel/static"
+    },
+    {
+      "src": "images/**",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
@@ -24,6 +28,7 @@
     { "src": "/register-metadata", "dest": "server.js" },
     { "src": "/terms.html", "dest": "terms.html" },
     { "src": "/privacy.html", "dest": "privacy.html" },
+    { "src": "/images/(.*)", "dest": "images/$1" },
     { "src": "/", "dest": "index.html" }
   ]
 }
