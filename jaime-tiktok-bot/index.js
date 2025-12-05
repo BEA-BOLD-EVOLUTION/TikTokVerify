@@ -307,21 +307,55 @@ client.on(Events.MessageCreate, async (message) => {
 // Handle interactions (buttons + modals)
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
-    // Button: start verification
+    // Button: start verification - generate code first
     if (interaction.isButton()) {
       if (interaction.customId === 'verify_tiktok_start') {
-        const modal = new ModalBuilder()
-          .setCustomId('verify_tiktok_modal')
-          .setTitle('Verify Your TikTok');
+        // Generate code immediately
+        const code = await generateCode(interaction.guild);
+        
+        // Store the code for this user
+        pendingVerifications.set(interaction.user.id, {
+          code,
+          guildId: interaction.guild.id,
+        });
 
-        const usernameInput = new TextInputBuilder()
-          .setCustomId('tiktok_username')
-          .setLabel('Your TikTok username (e.g. @yourname)')
-          .setPlaceholder('@yourname')
+        // Show code and button to continue
+        const continueButton = new ButtonBuilder()
+          .setCustomId('verify_tiktok_added')
+          .setLabel('I Added the Code - Enter My Profile')
+          .setStyle(ButtonStyle.Success);
+
+        const row = new ActionRowBuilder().addComponents(continueButton);
+
+        await interaction.reply({
+          content: `🔐 **Step 1: Add this code to your TikTok bio**\n\nYour unique verification code:\n\`\`\`\n${code}\n\`\`\`\n\n**Instructions:**\n1. Open TikTok and go to your profile\n2. Tap "Edit profile"\n3. Add the code above anywhere in your bio\n4. Save your profile\n5. Click the button below\n\n⏳ You can remove the code after verification is complete.`,
+          components: [row],
+          ephemeral: true,
+        });
+      }
+
+      // Button: user says they added the code, now ask for profile link
+      if (interaction.customId === 'verify_tiktok_added') {
+        const record = pendingVerifications.get(interaction.user.id);
+        if (!record) {
+          return interaction.reply({
+            content: 'I could not find a pending verification for you. Please start again.',
+            ephemeral: true,
+          });
+        }
+
+        const modal = new ModalBuilder()
+          .setCustomId('verify_tiktok_link_modal')
+          .setTitle('Enter Your TikTok Profile');
+
+        const linkInput = new TextInputBuilder()
+          .setCustomId('tiktok_link')
+          .setLabel('Your TikTok profile link or username')
+          .setPlaceholder('https://tiktok.com/@yourname or @yourname')
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
 
-        const row = new ActionRowBuilder().addComponents(usernameInput);
+        const row = new ActionRowBuilder().addComponents(linkInput);
         modal.addComponents(row);
 
         await interaction.showModal(modal);
@@ -388,6 +422,50 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     // Modal submit
     if (interaction.isModalSubmit()) {
+      // New flow: user submits their profile link
+      if (interaction.customId === 'verify_tiktok_link_modal') {
+        const linkInput = interaction.fields
+          .getTextInputValue('tiktok_link')
+          .trim();
+
+        // Extract username from link or raw input
+        let username = linkInput;
+        // Handle full URLs like https://tiktok.com/@username or tiktok.com/@username
+        const urlMatch = linkInput.match(/tiktok\.com\/@?([a-zA-Z0-9_.]+)/i);
+        if (urlMatch) {
+          username = urlMatch[1];
+        } else {
+          // Clean up @ symbol if provided
+          username = username.replace(/^@/, '');
+        }
+
+        const record = pendingVerifications.get(interaction.user.id);
+        if (!record) {
+          return interaction.reply({
+            content: 'I could not find a pending verification for you. Please start again.',
+            ephemeral: true,
+          });
+        }
+
+        // Update record with username
+        record.username = username;
+        pendingVerifications.set(interaction.user.id, record);
+
+        const checkButton = new ButtonBuilder()
+          .setCustomId('verify_tiktok_check')
+          .setLabel('Verify Now')
+          .setStyle(ButtonStyle.Success);
+
+        const row = new ActionRowBuilder().addComponents(checkButton);
+
+        await interaction.reply({
+          content: `📋 **Step 2: Verify your profile**\n\nTikTok username: **@${username}**\nVerification code: \`${record.code}\`\n\nMake sure the code is in your bio, then click **"Verify Now"**.\n\n💡 *If you just updated your bio on mobile, wait 1-2 minutes for TikTok to sync.*`,
+          components: [row],
+          ephemeral: true,
+        });
+      }
+
+      // Old flow (keeping for backwards compatibility)
       if (interaction.customId === 'verify_tiktok_modal') {
         const username = interaction.fields
           .getTextInputValue('tiktok_username')
