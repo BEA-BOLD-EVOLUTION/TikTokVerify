@@ -1,4 +1,6 @@
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 const {
   Client,
   GatewayIntentBits,
@@ -11,6 +13,7 @@ const {
   TextInputStyle,
   Events,
   PermissionsBitField,
+  EmbedBuilder,
 } = require('discord.js');
 
 const client = new Client({
@@ -25,12 +28,66 @@ const client = new Client({
 
 const PREFIX = process.env.BOT_PREFIX || '!';
 const VERIFIED_ROLE_ID = process.env.VERIFIED_ROLE_ID;
+const VERIFIED_USERS_FILE = path.join(__dirname, 'verified-users.json');
 
 // In-memory store of pending verifications: { discordId: { username, code, guildId } }
 const pendingVerifications = new Map();
 
 // Cache for server prefixes: { guildId: prefix }
 const serverPrefixes = new Map();
+
+// Load verified users from file
+function loadVerifiedUsers() {
+  try {
+    if (fs.existsSync(VERIFIED_USERS_FILE)) {
+      const data = fs.readFileSync(VERIFIED_USERS_FILE, 'utf8');
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error('Error loading verified users:', err);
+  }
+  return {};
+}
+
+// Save verified users to file
+function saveVerifiedUsers(users) {
+  try {
+    fs.writeFileSync(VERIFIED_USERS_FILE, JSON.stringify(users, null, 2));
+  } catch (err) {
+    console.error('Error saving verified users:', err);
+  }
+}
+
+// Add a verified user
+function addVerifiedUser(guildId, discordId, discordTag, tiktokUsername) {
+  const users = loadVerifiedUsers();
+  if (!users[guildId]) {
+    users[guildId] = [];
+  }
+  
+  // Check if already verified (update if so)
+  const existing = users[guildId].findIndex(u => u.discordId === discordId);
+  const userData = {
+    discordId,
+    discordTag,
+    tiktokUsername,
+    verifiedAt: new Date().toISOString(),
+  };
+  
+  if (existing >= 0) {
+    users[guildId][existing] = userData;
+  } else {
+    users[guildId].push(userData);
+  }
+  
+  saveVerifiedUsers(users);
+}
+
+// Get verified users for a guild
+function getVerifiedUsers(guildId) {
+  const users = loadVerifiedUsers();
+  return users[guildId] || [];
+}
 
 // Get a short prefix from a name (first word, uppercase, max 10 chars)
 function getNamePrefix(name) {
@@ -180,6 +237,71 @@ client.on(Events.MessageCreate, async (message) => {
 
     await message.reply('Verification panel created.');
   }
+
+  // Command: !verified-list - Show all verified users (admin only)
+  if (command.toLowerCase() === 'verified-list') {
+    if (
+      !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
+    ) {
+      return message.reply("You don't have permission to use this.");
+    }
+
+    const verifiedUsers = getVerifiedUsers(message.guild.id);
+    
+    if (verifiedUsers.length === 0) {
+      return message.reply('No verified users yet.');
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle('✅ Verified Users')
+      .setColor(0x43b581)
+      .setDescription(`Total: **${verifiedUsers.length}** verified users`)
+      .setTimestamp();
+
+    // Add users to embed (max 25 fields)
+    const usersToShow = verifiedUsers.slice(0, 25);
+    const userList = usersToShow.map((u, i) => 
+      `**${i + 1}.** <@${u.discordId}> → [@${u.tiktokUsername}](https://tiktok.com/@${u.tiktokUsername})`
+    ).join('\n');
+
+    embed.addFields({ name: 'Linked Accounts', value: userList || 'None' });
+
+    if (verifiedUsers.length > 25) {
+      embed.setFooter({ text: `Showing 25 of ${verifiedUsers.length} users` });
+    }
+
+    await message.reply({ embeds: [embed] });
+  }
+
+  // Command: !verified-export - Export as CSV (admin only)
+  if (command.toLowerCase() === 'verified-export') {
+    if (
+      !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
+    ) {
+      return message.reply("You don't have permission to use this.");
+    }
+
+    const verifiedUsers = getVerifiedUsers(message.guild.id);
+    
+    if (verifiedUsers.length === 0) {
+      return message.reply('No verified users to export.');
+    }
+
+    const csv = 'Discord ID,Discord Tag,TikTok Username,Verified At\n' + 
+      verifiedUsers.map(u => 
+        `${u.discordId},${u.discordTag},@${u.tiktokUsername},${u.verifiedAt}`
+      ).join('\n');
+
+    const buffer = Buffer.from(csv, 'utf8');
+    
+    await message.reply({
+      content: `📊 Exported ${verifiedUsers.length} verified users:`,
+      files: [{
+        attachment: buffer,
+        name: `verified-users-${message.guild.id}.csv`
+      }]
+    });
+  }
 });
 
 // Handle interactions (buttons + modals)
@@ -244,6 +366,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
           }
 
           await member.roles.add(role);
+
+          // Save to verified users list
+          addVerifiedUser(
+            interaction.guild.id,
+            interaction.user.id,
+            interaction.user.tag,
+            record.username
+          );
 
           await interaction.editReply(
             `🎉 Verification successful!\n\nI found the code **${record.code}** in the bio of **@${record.username}**.\nYou've been given the **Verified Viewer** role.\n\nYou can remove the code from your TikTok bio now. 💀`,
