@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jaime TikTok Verification Bot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0f0f23;
+            --bg-secondary: #1a1a2e;
+            --bg-card: #16213e;
+            --accent: #5865F2;
+            --accent-hover: #4752c4;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0b0;
+            --border: #2a2a4a;
+            --success: #43b581;
+            --skull: #ff6b6b;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Animated background */
+        .bg-animation {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 50%, #0d0d1a 100%);
+        }
+
+        .bg-animation::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at 20% 80%, rgba(88, 101, 242, 0.1) 0%, transparent 50%),
+                        radial-gradient(circle at 80% 20%, rgba(255, 107, 107, 0.08) 0%, transparent 50%);
+        }
+
+        /* Navigation */
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: rgba(15, 15, 35, 0.9);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+            padding: 0 20px;
+        }
+
+        .nav-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 70px;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            text-decoration: none;
+        }
+
+        .logo-icon {
+            font-size: 1.8rem;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 8px;
+        }
+
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        .nav-links a:hover, .nav-links a.active {
+            color: var(--text-primary);
+            background: var(--bg-card);
+        }
+
+        .nav-cta {
+            background: var(--accent) !important;
+            color: var(--text-primary) !important;
+        }
+
+        .nav-cta:hover {
+            background: var(--accent-hover) !important;
+        }
+
+        /* Mobile menu */
+        .mobile-menu-btn {
+            display: none;
+            background: none;
+            border: none;
+            color: var(--text-primary);
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+
+        /* Hero Section */
+        .hero {
+            padding: 140px 20px 80px;
+            text-align: center;
+        }
+
+        .hero-content {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(88, 101, 242, 0.15);
+            border: 1px solid rgba(88, 101, 242, 0.3);
+            padding: 8px 16px;
+            border-radius: 50px;
+            font-size: 0.85rem;
+            color: var(--accent);
+            margin-bottom: 24px;
+        }
+
+        .hero h1 {
+            font-size: 3.5rem;
+            font-weight: 800;
+            line-height: 1.1;
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, var(--text-primary) 0%, var(--text-secondary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero h1 .skull {
+            -webkit-text-fill-color: var(--skull);
+        }
+
+        .hero p {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            line-height: 1.7;
+            margin-bottom: 32px;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 14px 28px;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            border: none;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: var(--text-primary);
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(88, 101, 242, 0.3);
+        }
+
+        .btn-secondary {
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-secondary);
+            border-color: var(--accent);
+        }
+
+        /* Features Grid */
+        .features {
+            padding: 60px 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+        }
+
+        .feature-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 28px;
+            transition: all 0.3s ease;
+        }
+
+        .feature-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-4px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .feature-icon {
+            font-size: 2.5rem;
+            margin-bottom: 16px;
+        }
+
+        .feature-card h3 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .feature-card p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        /* Content Sections */
+        .content-section {
+            display: none;
+            padding: 120px 20px 60px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .content-section.active {
+            display: block;
+        }
+
+        .content-section h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+
+        .content-section .subtitle {
+            color: var(--text-secondary);
+            margin-bottom: 40px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .content-section h2 {
+            font-size: 1.4rem;
+            font-weight: 600;
+            margin-top: 40px;
+            margin-bottom: 16px;
+            color: var(--text-primary);
+        }
+
+        .content-section p, .content-section li {
+            color: var(--text-secondary);
+            line-height: 1.8;
+            margin-bottom: 16px;
+        }
+
+        .content-section ul, .content-section ol {
+            padding-left: 24px;
+            margin-bottom: 24px;
+        }
+
+        .content-section li {
+            margin-bottom: 8px;
+        }
+
+        .content-section a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .content-section a:hover {
+            text-decoration: underline;
+        }
+
+        .highlight-box {
+            background: rgba(88, 101, 242, 0.1);
+            border: 1px solid rgba(88, 101, 242, 0.3);
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin: 24px 0;
+        }
+
+        .highlight-box p {
+            margin-bottom: 0;
+        }
+
+        .warning-box {
+            background: rgba(255, 107, 107, 0.1);
+            border: 1px solid rgba(255, 107, 107, 0.3);
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin: 24px 0;
+        }
+
+        /* How To Steps */
+        .steps {
+            counter-reset: step;
+        }
+
+        .step {
+            position: relative;
+            padding-left: 80px;
+            padding-bottom: 40px;
+            border-left: 2px solid var(--border);
+            margin-left: 24px;
+        }
+
+        .step:last-child {
+            border-left: none;
+            padding-bottom: 0;
+        }
+
+        .step::before {
+            counter-increment: step;
+            content: counter(step);
+            position: absolute;
+            left: -21px;
+            top: 0;
+            width: 40px;
+            height: 40px;
+            background: var(--accent);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1.1rem;
+        }
+
+        .step h3 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .step p {
+            margin-bottom: 8px;
+        }
+
+        .step code {
+            background: var(--bg-card);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.9rem;
+            color: var(--accent);
+        }
+
+        /* Footer */
+        footer {
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border);
+            padding: 60px 20px;
+            margin-top: 80px;
+        }
+
+        .footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 40px;
+        }
+
+        .footer-section h4 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: var(--text-primary);
+        }
+
+        .footer-section a {
+            display: block;
+            color: var(--text-secondary);
+            text-decoration: none;
+            padding: 6px 0;
+            font-size: 0.95rem;
+            transition: color 0.2s ease;
+        }
+
+        .footer-section a:hover {
+            color: var(--accent);
+        }
+
+        .footer-bottom {
+            max-width: 1200px;
+            margin: 40px auto 0;
+            padding-top: 24px;
+            border-top: 1px solid var(--border);
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+                position: absolute;
+                top: 70px;
+                left: 0;
+                right: 0;
+                background: var(--bg-secondary);
+                flex-direction: column;
+                padding: 20px;
+                border-bottom: 1px solid var(--border);
+            }
+
+            .nav-links.show {
+                display: flex;
+            }
+
+            .mobile-menu-btn {
+                display: block;
+            }
+
+            .hero h1 {
+                font-size: 2.2rem;
+            }
+
+            .hero p {
+                font-size: 1.1rem;
+            }
+
+            .step {
+                padding-left: 60px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-animation"></div>
+
+    <nav>
+        <div class="nav-container">
+            <a href="#" class="logo" onclick="showSection('home')">
+                <span class="logo-icon">💀</span>
+                <span>Jaime Bot</span>
+            </a>
+            <button class="mobile-menu-btn" onclick="toggleMobileMenu()">☰</button>
+            <div class="nav-links" id="navLinks">
+                <a href="#" onclick="showSection('home')" class="active" id="nav-home">Home</a>
+                <a href="#" onclick="showSection('about')" id="nav-about">About</a>
+                <a href="#" onclick="showSection('howto')" id="nav-howto">How To</a>
+                <a href="#" onclick="showSection('terms')" id="nav-terms">Terms</a>
+                <a href="#" onclick="showSection('privacy')" id="nav-privacy">Privacy</a>
+                <a href="#" onclick="showSection('license')" id="nav-license">License</a>
+                <a href="https://discord.com/api/oauth2/authorize?client_id=1446313791108419594&permissions=268698648&scope=bot%20applications.commands" class="nav-cta" target="_blank">Add to Discord</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Home Section -->
+    <section id="home" class="content-section active">
+        <div class="hero">
+            <div class="hero-content">
+                <div class="hero-badge">
+                    <span>🎮</span>
+                    <span>Discord Bot for TikTok Verification</span>
+                </div>
+                <h1>Verify Your TikTok <br><span class="skull">💀</span> Join Jaime's Community</h1>
+                <p>Connect your TikTok account to Discord and unlock exclusive access to Jaime's verified viewer community. Quick, secure, and totally free.</p>
+                <div class="hero-buttons">
+                    <a href="https://discord.com/api/oauth2/authorize?client_id=1446313791108419594&permissions=268698648&scope=bot%20applications.commands" class="btn btn-primary" target="_blank">
+                        <span>🚀</span> Add to Discord
+                    </a>
+                    <a href="#" class="btn btn-secondary" onclick="showSection('howto')">
+                        <span>📖</span> How It Works
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="features">
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🔐</div>
+                    <h3>Secure Verification</h3>
+                    <p>We verify TikTok ownership through a unique code system. No passwords, no access to your account.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>Instant Roles</h3>
+                    <p>Once verified, you'll automatically receive the Verified Viewer role in Discord.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🎯</div>
+                    <h3>Community Access</h3>
+                    <p>Unlock exclusive channels, events, challenges, and announcements from Jaime.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">💀</div>
+                    <h3>TikTok LIVE Viewers</h3>
+                    <p>Built specifically for Jaime's TikTok LIVE community to connect on Discord.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- About Section -->
+    <section id="about" class="content-section">
+        <h1>📖 About</h1>
+        <p class="subtitle">Learn more about the Jaime TikTok Verification Bot</p>
+
+        <h2>What is this bot?</h2>
+        <p>The Jaime TikTok Verification Bot is a Discord bot that allows viewers from Jaime's TikTok LIVE streams to verify their TikTok accounts and gain access to exclusive community features on Discord.</p>
+
+        <h2>Why verification?</h2>
+        <p>Verification helps us:</p>
+        <ul>
+            <li>Know who's who between TikTok and Discord</li>
+            <li>Assign the correct roles to community members</li>
+            <li>Create a safe, verified community space</li>
+            <li>Reward loyal viewers with exclusive perks</li>
+        </ul>
+
+        <h2>How does it work?</h2>
+        <div class="highlight-box">
+            <p>The bot generates a unique verification code that you temporarily add to your TikTok bio. Once the bot confirms the code is in your bio, you're verified! You can then remove the code.</p>
+        </div>
+
+        <h2>Is it safe?</h2>
+        <p>Absolutely! We never:</p>
+        <ul>
+            <li>Ask for your TikTok password</li>
+            <li>Access your TikTok account</li>
+            <li>Post anything on your behalf</li>
+            <li>Store your data permanently</li>
+        </ul>
+
+        <h2>Who made this?</h2>
+        <p>This bot was created for Jaime's community. It's open source and built with love for the viewers who support the stream.</p>
+    </section>
+
+    <!-- How To Section -->
+    <section id="howto" class="content-section">
+        <h1>🎯 How To Verify</h1>
+        <p class="subtitle">Follow these simple steps to verify your TikTok account</p>
+
+        <div class="steps">
+            <div class="step">
+                <h3>Find the Verification Channel</h3>
+                <p>In Jaime's Discord server, look for the verification channel where the bot has posted a verification panel.</p>
+            </div>
+            <div class="step">
+                <h3>Click "Verify TikTok"</h3>
+                <p>Click the blue <strong>Verify TikTok</strong> button to start the verification process.</p>
+            </div>
+            <div class="step">
+                <h3>Enter Your TikTok Username</h3>
+                <p>A popup will appear asking for your TikTok username. Enter it with or without the @ symbol.</p>
+                <p>Example: <code>@yourname</code> or <code>yourname</code></p>
+            </div>
+            <div class="step">
+                <h3>Add the Code to Your Bio</h3>
+                <p>The bot will give you a unique code like <code>JAIME-12345</code>. Open TikTok and add this code anywhere in your bio.</p>
+            </div>
+            <div class="step">
+                <h3>Click "I Added the Code"</h3>
+                <p>Once the code is in your TikTok bio, click the green button. The bot will check your profile.</p>
+            </div>
+            <div class="step">
+                <h3>Get Verified! 🎉</h3>
+                <p>If the code is found, you'll receive the <strong>Verified Viewer</strong> role instantly. You can now remove the code from your bio.</p>
+            </div>
+        </div>
+
+        <div class="highlight-box">
+            <p><strong>💡 Tip:</strong> Make sure your TikTok profile is set to <strong>public</strong> so the bot can read your bio!</p>
+        </div>
+
+        <div class="warning-box">
+            <p><strong>⚠️ Having trouble?</strong> If verification fails, double-check that your profile is public and the code is exactly as shown. Try again in a few minutes if TikTok is slow to update.</p>
+        </div>
+    </section>
+
+    <!-- Terms Section -->
+    <section id="terms" class="content-section">
+        <h1>📜 Terms of Service</h1>
+        <p class="subtitle">Last Updated: December 5, 2025</p>
+
+        <p>Welcome to the Jaime TikTok Verification Bot ("the Bot"). By using the Bot, you agree to these Terms of Service ("Terms"). Please read them carefully.</p>
+
+        <h2>1. Acceptance of Terms</h2>
+        <p>By adding the Bot to your Discord server or interacting with it, you agree to be bound by these Terms. If you do not agree, do not use the Bot.</p>
+
+        <h2>2. Description of Service</h2>
+        <p>The Bot provides TikTok account verification services for Discord servers. It allows users to verify ownership of their TikTok accounts by:</p>
+        <ul>
+            <li>Submitting their TikTok username</li>
+            <li>Adding a temporary verification code to their TikTok bio</li>
+            <li>Receiving a verified role upon successful verification</li>
+        </ul>
+
+        <h2>3. User Responsibilities</h2>
+        <p>By using the Bot, you agree to:</p>
+        <ul>
+            <li>Provide accurate information about your TikTok account</li>
+            <li>Only verify TikTok accounts that you own</li>
+            <li>Not attempt to manipulate or exploit the verification system</li>
+            <li>Not use the Bot for any illegal or unauthorized purpose</li>
+            <li>Comply with Discord's Terms of Service and Community Guidelines</li>
+            <li>Comply with TikTok's Terms of Service</li>
+        </ul>
+
+        <h2>4. Prohibited Activities</h2>
+        <p>You may not:</p>
+        <ul>
+            <li>Verify accounts that do not belong to you</li>
+            <li>Attempt to reverse engineer or exploit the Bot</li>
+            <li>Use the Bot to harass, spam, or harm others</li>
+            <li>Interfere with the Bot's operation</li>
+            <li>Share or sell verified status obtained through fraudulent means</li>
+        </ul>
+
+        <h2>5. Disclaimer of Warranties</h2>
+        <div class="warning-box">
+            <p>THE BOT IS PROVIDED "AS IS" WITHOUT WARRANTIES OF ANY KIND. WE DO NOT GUARANTEE THAT THE BOT WILL BE AVAILABLE AT ALL TIMES OR FUNCTION WITHOUT ERRORS.</p>
+        </div>
+
+        <h2>6. Limitation of Liability</h2>
+        <p>To the maximum extent permitted by law, we shall not be liable for any indirect, incidental, special, consequential, or punitive damages resulting from your use of the Bot.</p>
+
+        <h2>7. Third-Party Services</h2>
+        <p>The Bot interacts with third-party services including Discord and TikTok. Your use of these services is governed by their respective terms:</p>
+        <ul>
+            <li><a href="https://discord.com/terms" target="_blank">Discord Terms of Service</a></li>
+            <li><a href="https://www.tiktok.com/legal/terms-of-service" target="_blank">TikTok Terms of Service</a></li>
+        </ul>
+
+        <h2>8. Modifications</h2>
+        <p>We reserve the right to modify these Terms at any time. Continued use of the Bot after changes constitutes acceptance of the new Terms.</p>
+
+        <h2>9. Termination</h2>
+        <p>We reserve the right to terminate or restrict your access to the Bot at any time, for any reason, without notice.</p>
+    </section>
+
+    <!-- Privacy Section -->
+    <section id="privacy" class="content-section">
+        <h1>🔒 Privacy Policy</h1>
+        <p class="subtitle">Last Updated: December 5, 2025</p>
+
+        <p>This Privacy Policy explains how the Jaime TikTok Verification Bot ("the Bot") collects, uses, and protects your information.</p>
+
+        <h2>1. Information We Collect</h2>
+        <p>When you use the Bot, we may collect:</p>
+        <ul>
+            <li><strong>Discord User ID</strong> - To track pending verifications and assign roles</li>
+            <li><strong>TikTok Username</strong> - To verify account ownership</li>
+            <li><strong>Verification Code</strong> - To match your TikTok bio with your Discord account</li>
+        </ul>
+
+        <h2>2. How We Use Your Information</h2>
+        <p>We use the collected information solely for:</p>
+        <ul>
+            <li><strong>Verification:</strong> Confirming you own the TikTok account you claim</li>
+            <li><strong>Role Assignment:</strong> Granting the verified role upon successful verification</li>
+            <li><strong>Service Operation:</strong> Ensuring the Bot functions correctly</li>
+        </ul>
+
+        <div class="highlight-box">
+            <p><strong>We do NOT:</strong> Sell your data, store your TikTok bio content, access your TikTok account, post on your behalf, or share your information with advertisers.</p>
+        </div>
+
+        <h2>3. Data Storage & Retention</h2>
+        <p>Verification data is stored <strong>temporarily in memory only</strong> during the verification process:</p>
+        <ul>
+            <li>Data is automatically deleted after successful verification</li>
+            <li>Data is automatically deleted when the Bot restarts</li>
+            <li>No verification data is written to disk or persistent databases</li>
+        </ul>
+
+        <h2>4. Third-Party Services</h2>
+        <p>The Bot interacts with:</p>
+        <ul>
+            <li><strong>Discord:</strong> See <a href="https://discord.com/privacy" target="_blank">Discord's Privacy Policy</a></li>
+            <li><strong>TikTok:</strong> See <a href="https://www.tiktok.com/legal/privacy-policy" target="_blank">TikTok's Privacy Policy</a></li>
+        </ul>
+        <p>We only access <strong>publicly available</strong> TikTok profile information (bio/signature).</p>
+
+        <h2>5. Your Rights</h2>
+        <p>You have the right to:</p>
+        <ul>
+            <li><strong>Not Use the Bot:</strong> Verification is optional</li>
+            <li><strong>Request Data Deletion:</strong> Contact server administrators</li>
+            <li><strong>Access Information:</strong> Ask what data is stored about you</li>
+        </ul>
+
+        <h2>6. Children's Privacy</h2>
+        <p>The Bot is not intended for users under 13 years of age. We do not knowingly collect information from children under 13.</p>
+
+        <h2>7. Changes to This Policy</h2>
+        <p>We may update this Privacy Policy from time to time. Changes will be reflected by updating the "Last Updated" date.</p>
+    </section>
+
+    <!-- License Section -->
+    <section id="license" class="content-section">
+        <h1>📄 License</h1>
+        <p class="subtitle">MIT License</p>
+
+        <p>Copyright (c) 2025 Jaime TikTok Verification Bot</p>
+
+        <div class="highlight-box">
+            <p>Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:</p>
+        </div>
+
+        <p>The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.</p>
+
+        <div class="warning-box">
+            <p><strong>THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.</strong></p>
+        </div>
+
+        <h2>What this means</h2>
+        <p>The MIT License is a permissive open source license. You can:</p>
+        <ul>
+            <li>✅ Use this software for any purpose</li>
+            <li>✅ Modify the source code</li>
+            <li>✅ Distribute copies</li>
+            <li>✅ Use it commercially</li>
+            <li>✅ Use it privately</li>
+        </ul>
+
+        <p>The only requirement is that you include the original copyright and license notice in any copy of the software.</p>
+
+        <h2>Open Source</h2>
+        <p>This project is open source and available on GitHub:</p>
+        <p><a href="https://github.com/BEA-BOLD-EVOLUTION/TikTokVerify" target="_blank">github.com/BEA-BOLD-EVOLUTION/TikTokVerify</a></p>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-content">
+            <div class="footer-section">
+                <h4>💀 Jaime Bot</h4>
+                <p style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.6;">TikTok verification for Jaime's Discord community.</p>
+            </div>
+            <div class="footer-section">
+                <h4>Navigation</h4>
+                <a href="#" onclick="showSection('home')">Home</a>
+                <a href="#" onclick="showSection('about')">About</a>
+                <a href="#" onclick="showSection('howto')">How To</a>
+            </div>
+            <div class="footer-section">
+                <h4>Legal</h4>
+                <a href="#" onclick="showSection('terms')">Terms of Service</a>
+                <a href="#" onclick="showSection('privacy')">Privacy Policy</a>
+                <a href="#" onclick="showSection('license')">License</a>
+            </div>
+            <div class="footer-section">
+                <h4>Connect</h4>
+                <a href="https://discord.com/api/oauth2/authorize?client_id=1446313791108419594&permissions=268698648&scope=bot%20applications.commands" target="_blank">Add to Discord</a>
+                <a href="https://github.com/BEA-BOLD-EVOLUTION/TikTokVerify" target="_blank">GitHub</a>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>© 2025 Jaime TikTok Verification Bot. Made with 💀 for the community.</p>
+        </div>
+    </footer>
+
+    <script>
+        function showSection(sectionId) {
+            // Hide all sections
+            document.querySelectorAll('.content-section').forEach(section => {
+                section.classList.remove('active');
+            });
+
+            // Show selected section
+            document.getElementById(sectionId).classList.add('active');
+
+            // Update nav active state
+            document.querySelectorAll('.nav-links a').forEach(link => {
+                link.classList.remove('active');
+            });
+            const navLink = document.getElementById('nav-' + sectionId);
+            if (navLink) navLink.classList.add('active');
+
+            // Scroll to top
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+
+            // Close mobile menu
+            document.getElementById('navLinks').classList.remove('show');
+        }
+
+        function toggleMobileMenu() {
+            document.getElementById('navLinks').classList.toggle('show');
+        }
+
+        // Handle browser back/forward
+        window.addEventListener('popstate', () => {
+            const hash = window.location.hash.slice(1) || 'home';
+            showSection(hash);
+        });
+    </script>
+</body>
+</html>
