@@ -35,17 +35,22 @@ function generateCode() {
   return `JAIME-${num}`;
 }
 
-// Very naive TikTok bio fetcher using global fetch (Node 18+)
+// TikTok bio fetcher with cache-busting for mobile app sync issues
 // NOTE: TikTok HTML can change. Treat this as a placeholder / starting point.
-async function fetchTikTokBio(username) {
+async function fetchTikTokBio(username, retryCount = 0) {
   const cleanUser = username.replace(/^@/, '').trim();
-  const url = `https://www.tiktok.com/@${cleanUser}`;
+  
+  // Add cache-busting parameter to try to get fresh data
+  const cacheBuster = Date.now();
+  const url = `https://www.tiktok.com/@${cleanUser}?_cb=${cacheBuster}`;
 
   const res = await fetch(url, {
     headers: {
       'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
       'Accept-Language': 'en-US,en;q=0.9',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
     },
   });
 
@@ -56,12 +61,33 @@ async function fetchTikTokBio(username) {
 
   const html = await res.text();
 
-  // TikTok embeds bio/"signature" in JSON. This is a rough extraction.
-  const match = html.match(/"signature":"(.*?)"/);
-  if (!match) return null;
+  // Try multiple patterns to find the bio - TikTok uses different formats
+  let bio = null;
+  
+  // Pattern 1: "signature":"..."
+  const match1 = html.match(/"signature":"(.*?)"/);
+  if (match1) {
+    bio = match1[1];
+  }
+  
+  // Pattern 2: "desc":"..." (alternate key)
+  if (!bio) {
+    const match2 = html.match(/"desc":"(.*?)"/);
+    if (match2) bio = match2[1];
+  }
+  
+  // Pattern 3: Look in userInfo object
+  if (!bio) {
+    const match3 = html.match(/"userInfo":\s*\{[^}]*"signature":"(.*?)"/);
+    if (match3) bio = match3[1];
+  }
+
+  if (!bio) {
+    console.log(`Could not find bio for @${cleanUser}`);
+    return null;
+  }
 
   // Unescape \uXXXX and \\" etc.
-  let bio = match[1];
   bio = bio.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
 
   // Convert \uXXXX
@@ -69,7 +95,22 @@ async function fetchTikTokBio(username) {
     String.fromCharCode(parseInt(g1, 16)),
   );
 
+  console.log(`Fetched bio for @${cleanUser}: "${bio.substring(0, 50)}..."`);
   return bio;
+}
+
+// Retry function with delays for mobile app sync issues
+async function fetchTikTokBioWithRetry(username, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    const bio = await fetchTikTokBio(username, i);
+    if (bio) return bio;
+    
+    // Wait a bit before retrying (1s, 2s, 3s)
+    if (i < maxRetries - 1) {
+      await new Promise(r => setTimeout(r, (i + 1) * 1000));
+    }
+  }
+  return null;
 }
 
 // When bot is ready
@@ -102,7 +143,7 @@ client.on(Events.MessageCreate, async (message) => {
 
     await message.channel.send({
       content:
-        '👋 **Welcome to Jaime\'s Server!**\n\nIf you came from TikTok LIVE, you can verify your TikTok account here so we know who\'s who and can assign the correct roles.\n\nClick the button below to start verification.\n\nOnce verified, you\'ll unlock:\n• Viewer community channels\n• Events and challenges\n• Jaime\'s announcements\n• Exclusive perks for verified members\n\nSuperfans have a separate verification path through TikTok.\n\n💀 Click below to begin:',
+        '👋 **TikTok Verification**\n\nVerify your TikTok account to link your identity across platforms.\n\nClick the button below to start verification.\n\nOnce verified, you\'ll receive the **Verified Viewer** role.\n\n💀 Click below to begin:',
       components: [row],
     });
 
@@ -146,10 +187,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         await interaction.deferReply({ ephemeral: true });
 
-        const bio = await fetchTikTokBio(record.username);
+        await interaction.editReply('🔍 Checking your TikTok bio... (this may take a few seconds for mobile changes to sync)');
+
+        const bio = await fetchTikTokBioWithRetry(record.username, 3);
         if (!bio) {
           return interaction.editReply(
-            'I could not read your TikTok profile. Make sure it is public and try again later.',
+            '❌ I could not read your TikTok profile.\n\n**Troubleshooting:**\n• Make sure your profile is **public** (not private)\n• If you edited on mobile, wait 1-2 minutes for TikTok to sync\n• Try opening your profile on tiktok.com to force a refresh\n• Then click **"I Added the Code"** again',
           );
         }
 
@@ -176,7 +219,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           );
         } else {
           await interaction.editReply(
-            `⚠️ I could not find the verification code in the bio for **@${record.username}**.\n\nMake sure your profile is public and that your bio contains:\n\`${record.code}\`\n\nUpdate your bio and click **"I Added the Code"** again.`,
+            `⚠️ I could not find the verification code in the bio for **@${record.username}**.\n\n**Make sure:**\n• Your profile is **public**\n• Your bio contains exactly: \`${record.code}\`\n\n**📱 If you edited on mobile:**\nTikTok can take 1-2 minutes to sync changes to their website. Try:\n1. Open your profile on **tiktok.com** in a browser\n2. Refresh the page to see if your bio updated\n3. Then click **"I Added the Code"** again\n\nThe code is case-sensitive!`,
           );
         }
       }
