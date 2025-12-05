@@ -399,6 +399,47 @@
             color: var(--accent);
         }
 
+        /* Screenshot Section */
+        .screenshot-section {
+            padding: 60px 20px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .screenshot-section h2 {
+            text-align: center;
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+
+        .screenshot-section .subtitle {
+            text-align: center;
+            color: var(--text-secondary);
+            margin-bottom: 32px;
+        }
+
+        .screenshot-container {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+        }
+
+        .screenshot-container img {
+            width: 100%;
+            border-radius: 10px;
+            display: block;
+        }
+
+        .screenshot-caption {
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-top: 16px;
+        }
+
         /* Footer */
         footer {
             background: var(--bg-secondary);
@@ -547,6 +588,16 @@
                     <p>Built specifically for TikTok LIVE communities to connect on Discord.</p>
                 </div>
             </div>
+        </div>
+
+        <!-- Screenshot Section -->
+        <div class="screenshot-section">
+            <h2>📱 See It In Action</h2>
+            <p class="subtitle">Here's what the verification process looks like in Discord</p>
+            <div class="screenshot-container">
+                <img src="images/verification-demo.png" alt="TikTok Verification Bot Demo - showing the verification process in Discord">
+            </div>
+            <p class="screenshot-caption">The entire verification process is private - only you can see your verification messages</p>
         </div>
     </section>
 
