@@ -184,11 +184,16 @@ jaime-tiktok-bot/
 
 ---
 
-## Requirements
+## Tech Stack
 
-- Node.js 18+ (for native fetch support)
-- discord.js v14+
-- dotenv
+| Technology | Purpose |
+|------------|---------|
+| **Node.js 18+** | Runtime (native fetch support) |
+| **discord.js v14** | Discord bot framework |
+| **Express.js** | Web server for dashboard |
+| **Vercel** | Website hosting |
+| **Railway** | 24/7 bot hosting |
+| **JSON file storage** | Persistent verified users database |
 
 ---
 
