@@ -124,21 +124,21 @@ async function generateCode(guild) {
 }
 
 // TikTok bio fetcher with cache-busting for mobile app sync issues
-// Uses multiple strategies to bypass TikTok's aggressive caching
+// Uses TikTok's own mobile app user agent to bypass blocking
 async function fetchTikTokBio(username, attemptNum = 0) {
   const cleanUser = username.replace(/^@/, '').trim();
   
-  // Rotate user agents to try different cache layers
+  // Use TikTok's own mobile app user agents - these bypass the 403 block
   const userAgents = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+    'TikTok 26.1.3 rv:261303 (iPhone; iOS 14.4.2; en_US) Cronet',
+    'TikTok 26.2.0 rv:262000 (iPhone; iOS 16.0; en_US) Cronet',
+    'com.zhiliaoapp.musically/2022600030 (Linux; U; Android 12; en_US; Pixel 6; Build/SP1A.210812.015; Cronet/TTNetVersion:b4d74d15 2020-04-23 QuicVersion:0144d358 2020-03-24)',
+    'TikTok 25.0.0 rv:250000 (iPhone; iOS 15.0; en_US) Cronet',
   ];
   
   const userAgent = userAgents[attemptNum % userAgents.length];
   
-  // Add multiple cache-busting parameters
+  // Add cache-busting parameters
   const cacheBuster = Date.now() + Math.random();
   const url = `https://www.tiktok.com/@${cleanUser}?_t=${cacheBuster}&_r=${attemptNum}`;
 
@@ -148,12 +148,8 @@ async function fetchTikTokBio(username, attemptNum = 0) {
         'User-Agent': userAgent,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
         'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
         'Pragma': 'no-cache',
-        'Expires': '0',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
       },
     });
 
