@@ -10,6 +10,8 @@ A Discord bot that verifies users' TikTok accounts by checking for a unique code
 - 📋 **Verified users list** - Admins can view and export all verified users
 - 💾 **Persistent storage** - Verified users are saved to JSON file
 - 🌐 **24/7 hosting ready** - Designed for Railway, Heroku, or any Node.js host
+- 🏥 **Health checks** - Automatic checks every 4 hours to ensure TikTok access
+- 🔧 **TikTok bypass** - Uses TikTok app user agents to avoid blocking
 
 ## How Verification Works
 
@@ -126,6 +128,8 @@ You should see: `Logged in as YourBotName#1234`
 | `!setup-verify` | Creates the verification panel in the current channel (Admin only) |
 | `!verified-list` | Shows all verified users with their TikTok profiles |
 | `!verified-export` | Exports verified users as a JSON file |
+| `!test-tiktok` | Tests if the bot can read TikTok bios (health check) |
+| `!test-tiktok @username` | Tests reading a specific user's TikTok bio |
 
 ### User Flow
 
@@ -149,7 +153,13 @@ You should see: `Logged in as YourBotName#1234`
 
 ### "I could not read your TikTok profile"
 - The user's TikTok profile must be **public**
-- TikTok may be blocking requests; try again later
+- Run `!test-tiktok` to check if the bot can access TikTok
+- Check Railway logs for health check results
+
+### TikTok blocking requests
+- The bot uses TikTok app user agents to bypass blocking
+- Health checks run every 4 hours and log results
+- Use `!test-tiktok` to manually verify TikTok access
 
 ### Bot not responding to commands
 - Make sure the bot has permission to read messages in the channel
