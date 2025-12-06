@@ -393,6 +393,50 @@ client.on(Events.MessageCreate, async (message) => {
       }]
     });
   }
+
+  // Command: !manual-verify @user @tiktokUsername - Manually verify a user (admin only)
+  if (command.toLowerCase() === 'manual-verify') {
+    if (
+      !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
+    ) {
+      return message.reply("You don't have permission to use this.");
+    }
+
+    const mentionedUser = message.mentions.users.first();
+    const tiktokUsername = args[1]?.replace(/^@/, '') || args[0]?.replace(/^@/, '');
+
+    if (!mentionedUser) {
+      return message.reply('Usage: `!manual-verify @DiscordUser @tiktokUsername`\n\nExample: `!manual-verify @Bea @penny.the.french.girl`');
+    }
+
+    if (!tiktokUsername || tiktokUsername.startsWith('<@')) {
+      return message.reply('Please provide a TikTok username.\n\nUsage: `!manual-verify @DiscordUser @tiktokUsername`');
+    }
+
+    try {
+      const member = await message.guild.members.fetch(mentionedUser.id);
+      const role = message.guild.roles.cache.get(VERIFIED_ROLE_ID);
+
+      if (!role) {
+        return message.reply('❌ Verified role not found. Check VERIFIED_ROLE_ID in your .env');
+      }
+
+      await member.roles.add(role);
+
+      // Save to verified users list
+      addVerifiedUser(
+        message.guild.id,
+        mentionedUser.id,
+        mentionedUser.tag,
+        tiktokUsername
+      );
+
+      await message.reply(`✅ Manually verified **${mentionedUser.tag}** with TikTok **@${tiktokUsername}**\n\nThey now have the Verified role.`);
+    } catch (err) {
+      console.error('Manual verify error:', err);
+      await message.reply(`❌ Error: ${err.message}`);
+    }
+  }
 });
 
 // Handle interactions (buttons + modals)
