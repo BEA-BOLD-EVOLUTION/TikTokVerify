@@ -1,0 +1,29 @@
+# Environment files with secrets
+.env
+*.env.local
+.env.*.local
+
+# Dependencies
+node_modules/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build output
+dist/
+build/
+
+# Local data
+verified-users.json
