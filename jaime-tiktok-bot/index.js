@@ -123,35 +123,34 @@ async function generateCode(guild) {
   return `${prefix}-${num}`;
 }
 
-// TikTok bio fetcher with cache-busting for mobile app sync issues
-// Uses TikTok's own mobile app user agent to bypass blocking
+// TikTok bio fetcher - uses Android mobile Chrome user agent
+// Based on https://github.com/rxxv/TiktokAccountInfo approach
+// Extracts data from embedded JSON in page (more reliable than HTML parsing)
 async function fetchTikTokBio(username, attemptNum = 0) {
   const cleanUser = username.replace(/^@/, '').trim();
   
-  // Use TikTok's own mobile app user agents - these bypass the 403 block
-  const userAgents = [
-    'TikTok 26.1.3 rv:261303 (iPhone; iOS 14.4.2; en_US) Cronet',
-    'TikTok 26.2.0 rv:262000 (iPhone; iOS 16.0; en_US) Cronet',
-    'com.zhiliaoapp.musically/2022600030 (Linux; U; Android 12; en_US; Pixel 6; Build/SP1A.210812.015; Cronet/TTNetVersion:b4d74d15 2020-04-23 QuicVersion:0144d358 2020-03-24)',
-    'TikTok 25.0.0 rv:250000 (iPhone; iOS 15.0; en_US) Cronet',
-  ];
-  
-  const userAgent = userAgents[attemptNum % userAgents.length];
-  
-  // Add cache-busting parameters
-  const cacheBuster = Date.now() + Math.random();
-  const url = `https://www.tiktok.com/@${cleanUser}?_t=${cacheBuster}&_r=${attemptNum}`;
+  // Headers that mimic Android Chrome browser - more reliable than TikTok app UA
+  const headers = {
+    'Host': 'www.tiktok.com',
+    'sec-ch-ua': '" Not A;Brand";v="99", "Chromium";v="99", "Google Chrome";v="99"',
+    'sec-ch-ua-mobile': '?1',
+    'sec-ch-ua-platform': '"Android"',
+    'upgrade-insecure-requests': '1',
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 8.0.0; Plume L2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.88 Mobile Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+    'sec-fetch-site': 'none',
+    'sec-fetch-mode': 'navigate',
+    'sec-fetch-user': '?1',
+    'sec-fetch-dest': 'document',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+  };
+
+  const url = `https://www.tiktok.com/@${cleanUser}`;
 
   try {
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': userAgent,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
-        'Pragma': 'no-cache',
-      },
-    });
+    const res = await fetch(url, { headers });
 
     if (!res.ok) {
       console.error(`Attempt ${attemptNum + 1}: Failed to fetch TikTok profile: ${res.status}`);
@@ -159,32 +158,59 @@ async function fetchTikTokBio(username, attemptNum = 0) {
     }
 
     const html = await res.text();
-
-    // Try multiple patterns to find the bio - TikTok uses different formats
     let bio = null;
-    
-    // Pattern 1: "signature":"..." (most common)
-    const match1 = html.match(/"signature":"(.*?)"/);
-    if (match1 && match1[1]) {
-      bio = match1[1];
+
+    // Method 1: Try to extract from embedded JSON (most reliable)
+    // TikTok embeds user data in a script tag as JSON
+    try {
+      // Look for the userInfo in the embedded JSON
+      const jsonMatch = html.match(/<script[^>]*id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([^<]+)<\/script>/);
+      if (jsonMatch) {
+        const jsonData = JSON.parse(jsonMatch[1]);
+        const userInfo = jsonData?.['__DEFAULT_SCOPE__']?.['webapp.user-detail']?.userInfo;
+        if (userInfo?.user?.signature) {
+          bio = userInfo.user.signature;
+          console.log(`Attempt ${attemptNum + 1}: Got bio from REHYDRATION JSON for @${cleanUser}`);
+        }
+      }
+    } catch (jsonErr) {
+      // JSON parsing failed, fall back to regex
+    }
+
+    // Method 2: Try SIGI_STATE format (older format)
+    if (!bio) {
+      try {
+        const sigiMatch = html.match(/<script[^>]*id="SIGI_STATE"[^>]*>([^<]+)<\/script>/);
+        if (sigiMatch) {
+          const jsonData = JSON.parse(sigiMatch[1]);
+          const userModule = jsonData?.UserModule?.users;
+          if (userModule) {
+            const userKey = Object.keys(userModule)[0];
+            if (userKey && userModule[userKey]?.signature) {
+              bio = userModule[userKey].signature;
+              console.log(`Attempt ${attemptNum + 1}: Got bio from SIGI_STATE for @${cleanUser}`);
+            }
+          }
+        }
+      } catch (sigiErr) {
+        // SIGI parsing failed
+      }
+    }
+
+    // Method 3: Fallback to regex patterns
+    if (!bio) {
+      // Pattern 1: "signature":"..." (most common)
+      const match1 = html.match(/"signature":"(.*?)"/);
+      if (match1 && match1[1]) {
+        bio = match1[1];
+        console.log(`Attempt ${attemptNum + 1}: Got bio from regex for @${cleanUser}`);
+      }
     }
     
-    // Pattern 2: "desc":"..." (alternate key)
+    // Pattern 2: Look for userInfo object specifically
     if (!bio) {
-      const match2 = html.match(/"desc":"(.*?)"/);
+      const match2 = html.match(/"userInfo":\s*\{[^}]*"signature":"([^"]+)"/);
       if (match2 && match2[1]) bio = match2[1];
-    }
-    
-    // Pattern 3: Look in userInfo object specifically
-    if (!bio) {
-      const match3 = html.match(/"userInfo":\s*\{[^}]*"signature":"([^"]+)"/);
-      if (match3 && match3[1]) bio = match3[1];
-    }
-    
-    // Pattern 4: bio-link JSON format
-    if (!bio) {
-      const match4 = html.match(/"bioLink":[^}]+,"signature":"([^"]+)"/);
-      if (match4 && match4[1]) bio = match4[1];
     }
 
     if (!bio) {
@@ -192,15 +218,11 @@ async function fetchTikTokBio(username, attemptNum = 0) {
       return null;
     }
 
-    // Unescape \uXXXX and \\" etc.
+    // Unescape unicode and special characters
     bio = bio.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-
-    // Convert \uXXXX unicode escapes
     bio = bio.replace(/\\u([\dA-Fa-f]{4})/g, (_, g1) =>
       String.fromCharCode(parseInt(g1, 16)),
     );
-    
-    // Also handle \\n newlines
     bio = bio.replace(/\\n/g, '\n');
 
     console.log(`Attempt ${attemptNum + 1}: Fetched bio for @${cleanUser}: "${bio.substring(0, 80)}..."`);
