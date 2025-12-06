@@ -233,12 +233,47 @@ async function fetchTikTokBioWithRetry(username, maxRetries = 5) {
   }
   
   return lastBio;
-  return null;
+}
+
+// Health check - test that we can still read TikTok bios
+async function runHealthCheck() {
+  const testAccount = 'tiktok'; // Official TikTok account - always exists
+  console.log(`[Health Check] Testing TikTok bio fetch for @${testAccount}...`);
+  
+  const bio = await fetchTikTokBio(testAccount, 0);
+  
+  if (bio) {
+    console.log(`[Health Check] ✅ SUCCESS - Can read TikTok bios. Bio: "${bio.substring(0, 50)}..."`);
+    return { success: true, bio };
+  } else {
+    console.error(`[Health Check] ❌ FAILED - Cannot read TikTok bios! TikTok may be blocking requests.`);
+    return { success: false, bio: null };
+  }
+}
+
+// Schedule periodic health checks (every 4 hours)
+function startHealthCheckScheduler() {
+  const FOUR_HOURS = 4 * 60 * 60 * 1000;
+  
+  // Run initial check after 1 minute
+  setTimeout(async () => {
+    await runHealthCheck();
+  }, 60 * 1000);
+  
+  // Then run every 4 hours
+  setInterval(async () => {
+    await runHealthCheck();
+  }, FOUR_HOURS);
+  
+  console.log('[Health Check] Scheduler started - will check every 4 hours');
 }
 
 // When bot is ready
 client.once(Events.ClientReady, (c) => {
   console.log(`Logged in as ${c.user.tag}`);
+  
+  // Start health check scheduler
+  startHealthCheckScheduler();
 });
 
 // Simple text command: !setup-verify
@@ -247,7 +282,28 @@ client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
   if (!message.content.startsWith(PREFIX)) return;
 
-  const [command] = message.content.slice(PREFIX.length).trim().split(/\s+/);
+  const [command, ...args] = message.content.slice(PREFIX.length).trim().split(/\s+/);
+
+  // Command: !test-tiktok [@username] - Test if bot can read TikTok bios (admin only)
+  if (command.toLowerCase() === 'test-tiktok') {
+    if (
+      !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
+    ) {
+      return message.reply("You don't have permission to use this.");
+    }
+
+    const testUser = args[0] ? args[0].replace(/^@/, '') : 'tiktok';
+    const statusMsg = await message.reply(`🔍 Testing TikTok bio fetch for **@${testUser}**...`);
+    
+    const bio = await fetchTikTokBio(testUser, 0);
+    
+    if (bio) {
+      await statusMsg.edit(`✅ **Success!** Can read TikTok bios.\n\n**@${testUser}'s bio:**\n> ${bio.substring(0, 200)}${bio.length > 200 ? '...' : ''}`);
+    } else {
+      await statusMsg.edit(`❌ **Failed!** Cannot read TikTok bio for @${testUser}.\n\nPossible issues:\n• TikTok may be blocking requests\n• The profile may be private\n• The username may not exist`);
+    }
+    return;
+  }
 
   if (command.toLowerCase() === 'setup-verify') {
     // Only allow admins to run this
