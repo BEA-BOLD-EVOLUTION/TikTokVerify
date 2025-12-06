@@ -367,7 +367,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const row = new ActionRowBuilder().addComponents(continueButton);
 
         await interaction.reply({
-          content: `🔐 **Step 1: Add this code to your TikTok bio**\n\nYour unique verification code:\n\`\`\`\n${code}\n\`\`\`\n\n**Instructions:**\n1. Open TikTok and go to your profile\n2. Tap "Edit profile"\n3. Add the code at the **beginning** of your bio\n4. Save your profile\n5. Click the button below\n\n⏳ You can remove the code after verification is complete.`,
+          content: `🔐 **Step 1: Add this code to your TikTok bio**\n\nYour unique verification code:\n\`\`\`\n${code}\n\`\`\`\n\n**Instructions:**\n1. Open TikTok and go to your profile\n2. Tap "Edit profile"\n3. Add the code at the **beginning** of your bio\n4. Save your profile\n5. Click the button below\n\n⏳ You can remove the code after verification is complete.\n\n📱 **Note:** When you update your bio on mobile, it can take **30-60+ seconds** for TikTok's web servers to reflect the change.`,
           components: [row],
           ephemeral: true,
         });
@@ -413,7 +413,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         await interaction.deferReply({ ephemeral: true });
 
-        await interaction.editReply('🔍 Checking your TikTok bio... (this may take 10-15 seconds for changes to sync)');
+        await interaction.editReply('🔍 **Checking your TikTok bio...**\n\n⏳ This can take up to **30 seconds** due to TikTok\'s servers syncing.\nPlease wait...');
 
         // Use 5 retries with progressive delays to handle TikTok caching
         const bio = await fetchTikTokBioWithRetry(record.username, 5);
@@ -503,7 +503,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const row = new ActionRowBuilder().addComponents(checkButton);
 
         await interaction.reply({
-          content: `📋 **Step 2: Verify your profile**\n\nTikTok username: **@${username}**\nVerification code: \`${record.code}\`\n\nMake sure the code is in your bio, then click **"Verify Now"**.\n\n💡 *If you just updated your bio on mobile, wait 1-2 minutes for TikTok to sync.*`,
+          content: `📋 **Step 2: Verify your profile**\n\nTikTok username: **@${username}**\nVerification code: \`${record.code}\`\n\nMake sure the code is in your bio, then click **"Verify Now"**.\n\n📱 **Note:** When you update your bio on mobile, it can take **30-60+ seconds** for TikTok's web servers to reflect the change. Please wait before clicking Verify Now.`,
           components: [row],
           ephemeral: true,
         });
