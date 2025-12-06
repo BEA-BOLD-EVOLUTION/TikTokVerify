@@ -124,80 +124,119 @@ async function generateCode(guild) {
 }
 
 // TikTok bio fetcher with cache-busting for mobile app sync issues
-// NOTE: TikTok HTML can change. Treat this as a placeholder / starting point.
-async function fetchTikTokBio(username, retryCount = 0) {
+// Uses multiple strategies to bypass TikTok's aggressive caching
+async function fetchTikTokBio(username, attemptNum = 0) {
   const cleanUser = username.replace(/^@/, '').trim();
   
-  // Add cache-busting parameter to try to get fresh data
-  const cacheBuster = Date.now();
-  const url = `https://www.tiktok.com/@${cleanUser}?_cb=${cacheBuster}`;
+  // Rotate user agents to try different cache layers
+  const userAgents = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+  ];
+  
+  const userAgent = userAgents[attemptNum % userAgents.length];
+  
+  // Add multiple cache-busting parameters
+  const cacheBuster = Date.now() + Math.random();
+  const url = `https://www.tiktok.com/@${cleanUser}?_t=${cacheBuster}&_r=${attemptNum}`;
 
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent':
-        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      'Pragma': 'no-cache',
-    },
-  });
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': userAgent,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+      },
+    });
 
-  if (!res.ok) {
-    console.error(`Failed to fetch TikTok profile: ${res.status}`);
+    if (!res.ok) {
+      console.error(`Attempt ${attemptNum + 1}: Failed to fetch TikTok profile: ${res.status}`);
+      return null;
+    }
+
+    const html = await res.text();
+
+    // Try multiple patterns to find the bio - TikTok uses different formats
+    let bio = null;
+    
+    // Pattern 1: "signature":"..." (most common)
+    const match1 = html.match(/"signature":"(.*?)"/);
+    if (match1 && match1[1]) {
+      bio = match1[1];
+    }
+    
+    // Pattern 2: "desc":"..." (alternate key)
+    if (!bio) {
+      const match2 = html.match(/"desc":"(.*?)"/);
+      if (match2 && match2[1]) bio = match2[1];
+    }
+    
+    // Pattern 3: Look in userInfo object specifically
+    if (!bio) {
+      const match3 = html.match(/"userInfo":\s*\{[^}]*"signature":"([^"]+)"/);
+      if (match3 && match3[1]) bio = match3[1];
+    }
+    
+    // Pattern 4: bio-link JSON format
+    if (!bio) {
+      const match4 = html.match(/"bioLink":[^}]+,"signature":"([^"]+)"/);
+      if (match4 && match4[1]) bio = match4[1];
+    }
+
+    if (!bio) {
+      console.log(`Attempt ${attemptNum + 1}: Could not find bio for @${cleanUser}`);
+      return null;
+    }
+
+    // Unescape \uXXXX and \\" etc.
+    bio = bio.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+
+    // Convert \uXXXX unicode escapes
+    bio = bio.replace(/\\u([\dA-Fa-f]{4})/g, (_, g1) =>
+      String.fromCharCode(parseInt(g1, 16)),
+    );
+    
+    // Also handle \\n newlines
+    bio = bio.replace(/\\n/g, '\n');
+
+    console.log(`Attempt ${attemptNum + 1}: Fetched bio for @${cleanUser}: "${bio.substring(0, 80)}..."`);
+    return bio;
+  } catch (err) {
+    console.error(`Attempt ${attemptNum + 1}: Error fetching TikTok profile:`, err.message);
     return null;
   }
-
-  const html = await res.text();
-
-  // Try multiple patterns to find the bio - TikTok uses different formats
-  let bio = null;
-  
-  // Pattern 1: "signature":"..."
-  const match1 = html.match(/"signature":"(.*?)"/);
-  if (match1) {
-    bio = match1[1];
-  }
-  
-  // Pattern 2: "desc":"..." (alternate key)
-  if (!bio) {
-    const match2 = html.match(/"desc":"(.*?)"/);
-    if (match2) bio = match2[1];
-  }
-  
-  // Pattern 3: Look in userInfo object
-  if (!bio) {
-    const match3 = html.match(/"userInfo":\s*\{[^}]*"signature":"(.*?)"/);
-    if (match3) bio = match3[1];
-  }
-
-  if (!bio) {
-    console.log(`Could not find bio for @${cleanUser}`);
-    return null;
-  }
-
-  // Unescape \uXXXX and \\" etc.
-  bio = bio.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-
-  // Convert \uXXXX
-  bio = bio.replace(/\\u([\dA-Fa-f]{4})/g, (_, g1) =>
-    String.fromCharCode(parseInt(g1, 16)),
-  );
-
-  console.log(`Fetched bio for @${cleanUser}: "${bio.substring(0, 50)}..."`);
-  return bio;
 }
 
-// Retry function with delays for mobile app sync issues
-async function fetchTikTokBioWithRetry(username, maxRetries = 3) {
+// Retry function with progressive delays for mobile app sync issues
+// TikTok's mobile app can take 30-60 seconds to sync bio changes to web
+async function fetchTikTokBioWithRetry(username, maxRetries = 5) {
+  let lastBio = null;
+  
   for (let i = 0; i < maxRetries; i++) {
     const bio = await fetchTikTokBio(username, i);
-    if (bio) return bio;
     
-    // Wait a bit before retrying (1s, 2s, 3s)
+    if (bio) {
+      lastBio = bio;
+      return bio;
+    }
+    
+    // Progressive delays: 2s, 3s, 4s, 5s between retries
     if (i < maxRetries - 1) {
-      await new Promise(r => setTimeout(r, (i + 1) * 1000));
+      const delay = (i + 2) * 1000;
+      console.log(`Waiting ${delay}ms before retry ${i + 2}...`);
+      await new Promise(r => setTimeout(r, delay));
     }
   }
+  
+  return lastBio;
   return null;
 }
 
@@ -374,16 +413,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         await interaction.deferReply({ ephemeral: true });
 
-        await interaction.editReply('🔍 Checking your TikTok bio... (this may take a few seconds for mobile changes to sync)');
+        await interaction.editReply('🔍 Checking your TikTok bio... (this may take 10-15 seconds for changes to sync)');
 
-        const bio = await fetchTikTokBioWithRetry(record.username, 3);
+        // Use 5 retries with progressive delays to handle TikTok caching
+        const bio = await fetchTikTokBioWithRetry(record.username, 5);
         if (!bio) {
           return interaction.editReply(
             '❌ I could not read your TikTok profile.\n\n**Troubleshooting:**\n• Make sure your profile is **public** (not private)\n• If you edited on mobile, wait 1-2 minutes for TikTok to sync\n• Try opening your profile on tiktok.com to force a refresh\n• Then click **"I Added the Code"** again',
           );
         }
 
-        if (bio.includes(record.code)) {
+        // Check if code is in bio (case-insensitive to handle edge cases)
+        const bioUpper = bio.toUpperCase();
+        const codeUpper = record.code.toUpperCase();
+        
+        if (bioUpper.includes(codeUpper)) {
           // Verified
           pendingVerifications.delete(interaction.user.id);
 
