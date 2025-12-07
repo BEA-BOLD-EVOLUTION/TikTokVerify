@@ -647,7 +647,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const row = new ActionRowBuilder().addComponents(continueButton);
 
         await interaction.reply({
-          content: `🔐 **Step 1: Add this code to your TikTok bio**\n\nYour unique verification code:\n\`\`\`\n${code}\n\`\`\`\n\n**Instructions:**\n1. Open TikTok and go to your profile\n2. Tap "Edit profile"\n3. Add the code at the **beginning** of your bio\n4. Save your profile\n5. Click the button below\n\n⏳ You can remove the code after verification is complete.\n\n📱 **Note:** When you update your bio on mobile, it can take **30-60+ seconds** for TikTok's web servers to reflect the change.`,
+          content: `🔐 **Step 1: Add this code to your TikTok bio**\n\nYour unique verification code:\n\`\`\`\n${code}\n\`\`\`\n\n**⚠️ IMPORTANT:**\n• Your TikTok profile must be **PUBLIC** (not private)\n• The code must be at the **BEGINNING** of your bio\n• Copy the code exactly as shown (e.g., \`JAIME-12345\`)\n\n**Instructions:**\n1. Open TikTok and go to your profile\n2. Make sure your account is **public** (Settings → Privacy → Private Account = OFF)\n3. Tap "Edit profile"\n4. Paste the code at the **very beginning** of your bio\n5. Save your profile\n6. Wait 30-60 seconds, then click the button below\n\n⏳ You can remove the code after verification is complete.`,
           components: [row],
           ephemeral: true,
         });
