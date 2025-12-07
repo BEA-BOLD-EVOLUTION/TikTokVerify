@@ -535,7 +535,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         // Use 5 retries with progressive delays to handle TikTok caching
         const bio = await fetchTikTokBioWithRetry(record.username, 5);
+        
+        // Debug logging
+        console.log(`[VERIFY] User: ${interaction.user.tag}`);
+        console.log(`[VERIFY] TikTok: @${record.username}`);
+        console.log(`[VERIFY] Expected code: ${record.code}`);
+        console.log(`[VERIFY] Fetched bio: "${bio}"`);
+        
         if (!bio) {
+          console.log(`[VERIFY] FAILED - No bio returned`);
           return interaction.editReply(
             '❌ I could not read your TikTok profile.\n\n**Troubleshooting:**\n• Make sure your profile is **public** (not private)\n• If you edited on mobile, wait 1-2 minutes for TikTok to sync\n• Try opening your profile on tiktok.com to force a refresh\n• Then click **"I Added the Code"** again',
           );
@@ -544,6 +552,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         // Check if code is in bio (case-insensitive to handle edge cases)
         const bioUpper = bio.toUpperCase();
         const codeUpper = record.code.toUpperCase();
+        
+        console.log(`[VERIFY] Bio contains code? ${bioUpper.includes(codeUpper)}`);
         
         if (bioUpper.includes(codeUpper)) {
           // Verified
