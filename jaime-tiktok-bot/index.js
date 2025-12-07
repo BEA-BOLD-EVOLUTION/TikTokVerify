@@ -285,11 +285,14 @@ async function fetchTikTokBio(username, attemptNum = 0) {
     'sec-fetch-user': '?1',
     'sec-fetch-dest': 'document',
     'Accept-Language': 'en-US,en;q=0.9',
-    'Cache-Control': 'no-cache',
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
     'Pragma': 'no-cache',
+    'Expires': '0',
   };
 
-  const url = `https://www.tiktok.com/@${cleanUser}`;
+  // Add cache-busting query parameter to try to get fresh content
+  const cacheBuster = Date.now();
+  const url = `https://www.tiktok.com/@${cleanUser}?_cb=${cacheBuster}`;
 
   try {
     const res = await fetch(url, { headers });
