@@ -602,14 +602,24 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         // Extract username from link or raw input
         let username = linkInput;
-        // Handle full URLs like https://tiktok.com/@username or tiktok.com/@username
-        const urlMatch = linkInput.match(/tiktok\.com\/@?([a-zA-Z0-9_.]+)/i);
+        
+        // Handle full URLs like https://tiktok.com/@username or https://www.tiktok.com/@username
+        // Also handles: tiktok.com/@user, www.tiktok.com/@user, vm.tiktok.com/xxx
+        const urlMatch = linkInput.match(/(?:https?:\/\/)?(?:www\.|vm\.)?tiktok\.com\/@([a-zA-Z0-9_.]+)/i);
         if (urlMatch) {
           username = urlMatch[1];
         } else {
-          // Clean up @ symbol if provided
-          username = username.replace(/^@/, '');
+          // Not a URL - clean up @ symbol if provided and remove any URL parts
+          username = username
+            .replace(/^@/, '')                    // Remove leading @
+            .replace(/https?:\/\//gi, '')         // Remove http:// or https://
+            .replace(/www\.tiktok\.com\/?/gi, '') // Remove www.tiktok.com
+            .replace(/tiktok\.com\/?/gi, '')      // Remove tiktok.com
+            .replace(/^@/, '')                    // Remove @ again after URL removal
+            .trim();
         }
+        
+        console.log(`[USERNAME PARSE] Input: "${linkInput}" -> Username: "${username}"`);
 
         const record = pendingVerifications.get(interaction.user.id);
         if (!record) {
