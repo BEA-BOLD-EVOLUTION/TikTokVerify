@@ -29,12 +29,41 @@ const client = new Client({
 const PREFIX = process.env.BOT_PREFIX || '!';
 const VERIFIED_ROLE_ID = process.env.VERIFIED_ROLE_ID;
 const VERIFIED_USERS_FILE = path.join(__dirname, 'verified-users.json');
+const PENDING_VERIFICATIONS_FILE = path.join(__dirname, 'pending-verifications.json');
 
 // In-memory store of pending verifications: { discordId: { username, code, previousCodes, guildId } }
 const pendingVerifications = new Map();
 
 // Cache for server prefixes: { guildId: prefix }
 const serverPrefixes = new Map();
+
+// Load pending verifications from file (survives restarts)
+function loadPendingVerifications() {
+  try {
+    if (fs.existsSync(PENDING_VERIFICATIONS_FILE)) {
+      const data = fs.readFileSync(PENDING_VERIFICATIONS_FILE, 'utf8');
+      const parsed = JSON.parse(data);
+      // Convert object back to Map
+      for (const [key, value] of Object.entries(parsed)) {
+        pendingVerifications.set(key, value);
+      }
+      console.log(`[Startup] Loaded ${pendingVerifications.size} pending verifications`);
+    }
+  } catch (err) {
+    console.error('Error loading pending verifications:', err);
+  }
+}
+
+// Save pending verifications to file
+function savePendingVerifications() {
+  try {
+    // Convert Map to object for JSON
+    const obj = Object.fromEntries(pendingVerifications);
+    fs.writeFileSync(PENDING_VERIFICATIONS_FILE, JSON.stringify(obj, null, 2));
+  } catch (err) {
+    console.error('Error saving pending verifications:', err);
+  }
+}
 
 // Load verified users from file
 function loadVerifiedUsers() {
@@ -290,6 +319,9 @@ function startHealthCheckScheduler() {
   console.log('[Health Check] Scheduler started - will check every 4 hours');
 }
 
+// Load pending verifications from file before connecting
+loadPendingVerifications();
+
 // When bot is ready
 client.once(Events.ClientReady, (c) => {
   console.log(`Logged in as ${c.user.tag}`);
@@ -486,6 +518,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           previousCodes,
           guildId: interaction.guild.id,
         });
+        savePendingVerifications();
 
         // Show code and button to continue
         const continueButton = new ButtonBuilder()
@@ -609,6 +642,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (verified) {
           // Verified
           pendingVerifications.delete(interaction.user.id);
+          savePendingVerifications();
 
           const member = await interaction.guild.members.fetch(
             interaction.user.id,
@@ -684,6 +718,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         // Update record with username
         record.username = username;
         pendingVerifications.set(interaction.user.id, record);
+        savePendingVerifications();
 
         const checkButton = new ButtonBuilder()
           .setCustomId('verify_tiktok_check')
@@ -711,6 +746,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           code,
           guildId: interaction.guild.id,
         });
+        savePendingVerifications();
 
         const checkButton = new ButtonBuilder()
           .setCustomId('verify_tiktok_check')
