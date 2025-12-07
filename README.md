@@ -8,12 +8,14 @@ A Discord bot that verifies users' TikTok accounts by checking for a unique code
 - 🎯 **Unique codes** - Bot generates server-specific codes (e.g., `JAIME-12345`)
 - ✅ **Automatic role assignment** - Verified users get a role automatically
 - 📋 **Verified users list** - Admins can view and export all verified users
-- 💾 **Persistent storage** - Verified users are saved to JSON file
+- 💾 **Persistent storage** - Verified users AND pending verifications survive restarts
 - 🌐 **24/7 hosting ready** - Designed for Railway, Heroku, or any Node.js host
 - 🏥 **Health checks** - Automatic checks every 4 hours to ensure TikTok access
 - 🔧 **Smart TikTok fetching** - Uses Android mobile headers to bypass blocking
 - 🔗 **Flexible input** - Accepts username (`bea.spoke`), handle (`@bea.spoke`), or full URL
 - 👮 **Manual verify** - Admins can manually verify users when needed
+- ⏳ **Extended polling** - Checks TikTok bio for up to 10 minutes (TikTok CDN can be slow)
+- 🔄 **Previous codes accepted** - Accepts last 2 codes if user regenerates during verification
 
 ## How Verification Works
 
@@ -180,6 +182,13 @@ Ensure the bot's role is **higher** than the Verified Viewer role in Server Sett
 - Health checks run every 4 hours and log results
 - Use `!test-tiktok` to manually verify TikTok access
 
+### TikTok CDN caching (bio changes not showing)
+
+- TikTok's CDN can take **several minutes** to propagate bio changes
+- The bot polls for up to **10 minutes** (60 attempts, 10 seconds apart)
+- If verification fails, users can try again - the bot accepts the **last 2 codes** they generated
+- Pending verifications are saved to file, so codes survive bot restarts/redeploys
+
 ### Bot not responding to commands
 
 - Make sure the bot has permission to read messages in the channel
@@ -191,17 +200,18 @@ Ensure the bot's role is **higher** than the Verified Viewer role in Server Sett
 
 ```text
 jaime-tiktok-bot/
-├── index.js            # Main bot code
-├── package.json        # Dependencies
-├── server.js           # Express server for web dashboard
-├── index.html          # Website landing page
-├── privacy.html        # Privacy policy
-├── terms.html          # Terms of service
-├── verified-users.json # Saved verified users (auto-created)
-├── .env                # Environment variables (DO NOT COMMIT)
-├── vercel.json         # Vercel deployment config
-├── images/             # Logo and screenshots
-└── README.md           # This file
+├── index.js                    # Main bot code
+├── package.json                # Dependencies
+├── server.js                   # Express server for web dashboard
+├── index.html                  # Website landing page
+├── privacy.html                # Privacy policy
+├── terms.html                  # Terms of service
+├── verified-users.json         # Saved verified users (auto-created)
+├── pending-verifications.json  # Pending verifications (survives restarts)
+├── .env                        # Environment variables (DO NOT COMMIT)
+├── vercel.json                 # Vercel deployment config
+├── images/                     # Logo and screenshots
+└── README.md                   # This file
 ```
 
 ---
