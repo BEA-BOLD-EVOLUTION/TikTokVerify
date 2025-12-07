@@ -717,12 +717,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
             lastBio = bio;
             const bioUpper = bio.toUpperCase();
             
-            // Check current code AND previous 2 codes (handles TikTok CDN lag)
+            // Check current code AND previous codes (handles TikTok CDN lag)
             const allCodes = [record.code, ...(record.previousCodes || [])];
             let matchedCode = null;
             
             for (const code of allCodes) {
-              if (bioUpper.includes(code.toUpperCase())) {
+              const codeUpper = code.toUpperCase();
+              // Also check for common typo: JAMIE instead of JAIME
+              const typoVariant = codeUpper.replace('JAIME', 'JAMIE');
+              
+              if (bioUpper.includes(codeUpper) || bioUpper.includes(typoVariant)) {
                 matchedCode = code;
                 break;
               }
