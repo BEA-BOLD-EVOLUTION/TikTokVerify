@@ -1,6 +1,7 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
+const Redis = require('ioredis');
 const {
   Client,
   GatewayIntentBits,
@@ -31,37 +32,131 @@ const VERIFIED_ROLE_ID = process.env.VERIFIED_ROLE_ID;
 const VERIFIED_USERS_FILE = path.join(__dirname, 'verified-users.json');
 const PENDING_VERIFICATIONS_FILE = path.join(__dirname, 'pending-verifications.json');
 
+// Redis connection (optional - falls back to file storage if not configured)
+let redis = null;
+const REDIS_PREFIX = 'tiktok_verify:';
+
+if (process.env.REDIS_URL) {
+  redis = new Redis(process.env.REDIS_URL, {
+    maxRetriesPerRequest: 3,
+    retryDelayOnFailover: 100,
+    lazyConnect: true,
+  });
+  
+  redis.on('connect', () => {
+    console.log('[Redis] Connected successfully');
+  });
+  
+  redis.on('error', (err) => {
+    console.error('[Redis] Connection error:', err.message);
+  });
+}
+
 // In-memory store of pending verifications: { discordId: { username, code, previousCodes, guildId } }
 const pendingVerifications = new Map();
 
 // Cache for server prefixes: { guildId: prefix }
 const serverPrefixes = new Map();
 
-// Load pending verifications from file (survives restarts)
-function loadPendingVerifications() {
+// Redis helper functions
+async function redisSavePending(userId, data) {
+  if (!redis) return false;
+  try {
+    await redis.set(`${REDIS_PREFIX}pending:${userId}`, JSON.stringify(data), 'EX', 86400); // 24 hour expiry
+    return true;
+  } catch (err) {
+    console.error('[Redis] Save error:', err.message);
+    return false;
+  }
+}
+
+async function redisGetPending(userId) {
+  if (!redis) return null;
+  try {
+    const data = await redis.get(`${REDIS_PREFIX}pending:${userId}`);
+    return data ? JSON.parse(data) : null;
+  } catch (err) {
+    console.error('[Redis] Get error:', err.message);
+    return null;
+  }
+}
+
+async function redisDeletePending(userId) {
+  if (!redis) return false;
+  try {
+    await redis.del(`${REDIS_PREFIX}pending:${userId}`);
+    return true;
+  } catch (err) {
+    console.error('[Redis] Delete error:', err.message);
+    return false;
+  }
+}
+
+async function redisGetAllPending() {
+  if (!redis) return {};
+  try {
+    const keys = await redis.keys(`${REDIS_PREFIX}pending:*`);
+    if (keys.length === 0) return {};
+    
+    const result = {};
+    for (const key of keys) {
+      const userId = key.replace(`${REDIS_PREFIX}pending:`, '');
+      const data = await redis.get(key);
+      if (data) result[userId] = JSON.parse(data);
+    }
+    return result;
+  } catch (err) {
+    console.error('[Redis] Get all error:', err.message);
+    return {};
+  }
+}
+
+// Load pending verifications (from Redis or file)
+async function loadPendingVerifications() {
+  // Try Redis first
+  if (redis) {
+    try {
+      await redis.connect();
+      const all = await redisGetAllPending();
+      for (const [key, value] of Object.entries(all)) {
+        pendingVerifications.set(key, value);
+      }
+      console.log(`[Startup] Loaded ${pendingVerifications.size} pending verifications from Redis`);
+      return;
+    } catch (err) {
+      console.error('[Redis] Failed to load, falling back to file:', err.message);
+    }
+  }
+  
+  // Fallback to file
   try {
     if (fs.existsSync(PENDING_VERIFICATIONS_FILE)) {
       const data = fs.readFileSync(PENDING_VERIFICATIONS_FILE, 'utf8');
       const parsed = JSON.parse(data);
-      // Convert object back to Map
       for (const [key, value] of Object.entries(parsed)) {
         pendingVerifications.set(key, value);
       }
-      console.log(`[Startup] Loaded ${pendingVerifications.size} pending verifications`);
+      console.log(`[Startup] Loaded ${pendingVerifications.size} pending verifications from file`);
     }
   } catch (err) {
-    console.error('Error loading pending verifications:', err);
+    console.error('Error loading pending verifications from file:', err);
   }
 }
 
-// Save pending verifications to file
-function savePendingVerifications() {
+// Save pending verifications (to Redis and file)
+async function savePendingVerifications() {
+  // Save to Redis if available
+  if (redis) {
+    // Redis saves are done individually in set/delete operations
+    return;
+  }
+  
+  // Fallback: save to file
   try {
-    // Convert Map to object for JSON
     const obj = Object.fromEntries(pendingVerifications);
     fs.writeFileSync(PENDING_VERIFICATIONS_FILE, JSON.stringify(obj, null, 2));
   } catch (err) {
-    console.error('Error saving pending verifications:', err);
+    console.error('Error saving pending verifications to file:', err);
   }
 }
 
@@ -502,8 +597,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         // Generate code immediately
         const code = await generateCode(interaction.guild);
         
-        // Get existing record to preserve previous codes
-        const existingRecord = pendingVerifications.get(interaction.user.id);
+        // Get existing record to preserve previous codes (check Redis first, then memory)
+        let existingRecord = pendingVerifications.get(interaction.user.id);
+        if (!existingRecord && redis) {
+          existingRecord = await redisGetPending(interaction.user.id);
+        }
         const previousCodes = existingRecord?.previousCodes || [];
         
         // Add current code to previous codes (keep last 2)
@@ -513,12 +611,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
         
         // Store the code for this user with previous codes
-        pendingVerifications.set(interaction.user.id, {
+        const pendingData = {
           code,
           previousCodes,
           guildId: interaction.guild.id,
-        });
-        savePendingVerifications();
+        };
+        pendingVerifications.set(interaction.user.id, pendingData);
+        if (redis) {
+          await redisSavePending(interaction.user.id, pendingData);
+        } else {
+          savePendingVerifications();
+        }
 
         // Show code and button to continue
         const continueButton = new ButtonBuilder()
@@ -537,7 +640,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       // Button: user says they added the code, now ask for profile link
       if (interaction.customId === 'verify_tiktok_added') {
-        const record = pendingVerifications.get(interaction.user.id);
+        let record = pendingVerifications.get(interaction.user.id);
+        if (!record && redis) {
+          record = await redisGetPending(interaction.user.id);
+          if (record) pendingVerifications.set(interaction.user.id, record);
+        }
         if (!record) {
           return interaction.reply({
             content: 'I could not find a pending verification for you. Please start again.',
@@ -564,7 +671,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       if (interaction.customId === 'verify_tiktok_check') {
         // User clicked "I Added the Code"
-        const record = pendingVerifications.get(interaction.user.id);
+        let record = pendingVerifications.get(interaction.user.id);
+        if (!record && redis) {
+          record = await redisGetPending(interaction.user.id);
+          if (record) pendingVerifications.set(interaction.user.id, record);
+        }
         if (!record) {
           return interaction.reply({
             content:
@@ -642,7 +753,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (verified) {
           // Verified
           pendingVerifications.delete(interaction.user.id);
-          savePendingVerifications();
+          if (redis) {
+            await redisDeletePending(interaction.user.id);
+          } else {
+            savePendingVerifications();
+          }
 
           const member = await interaction.guild.members.fetch(
             interaction.user.id,
@@ -707,7 +822,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         
         console.log(`[USERNAME PARSE] Input: "${linkInput}" -> Username: "${username}"`);
 
-        const record = pendingVerifications.get(interaction.user.id);
+        let record = pendingVerifications.get(interaction.user.id);
+        if (!record && redis) {
+          record = await redisGetPending(interaction.user.id);
+          if (record) pendingVerifications.set(interaction.user.id, record);
+        }
         if (!record) {
           return interaction.reply({
             content: 'I could not find a pending verification for you. Please start again.',
@@ -718,7 +837,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         // Update record with username
         record.username = username;
         pendingVerifications.set(interaction.user.id, record);
-        savePendingVerifications();
+        if (redis) {
+          await redisSavePending(interaction.user.id, record);
+        } else {
+          savePendingVerifications();
+        }
 
         const checkButton = new ButtonBuilder()
           .setCustomId('verify_tiktok_check')
@@ -741,12 +864,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
           .trim();
 
         const code = await generateCode(interaction.guild);
-        pendingVerifications.set(interaction.user.id, {
+        const oldFlowData = {
           username: username.replace(/^@/, ''),
           code,
           guildId: interaction.guild.id,
-        });
-        savePendingVerifications();
+        };
+        pendingVerifications.set(interaction.user.id, oldFlowData);
+        if (redis) {
+          await redisSavePending(interaction.user.id, oldFlowData);
+        } else {
+          savePendingVerifications();
+        }
 
         const checkButton = new ButtonBuilder()
           .setCustomId('verify_tiktok_check')

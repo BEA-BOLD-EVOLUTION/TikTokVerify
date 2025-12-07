@@ -101,9 +101,23 @@ DISCORD_APPLICATION_ID=your_application_id_here
 DISCORD_PUBLIC_KEY=your_public_key_here
 BOT_PREFIX=!
 VERIFIED_ROLE_ID=your_verified_role_id_here
+REDIS_URL=redis://default:password@host:port
 ```
 
 Replace the placeholder values with your actual credentials.
+
+**Redis (Optional but Recommended):** Adding `REDIS_URL` enables persistent storage that survives deployments. Without it, pending verifications are stored in a local file (which gets wiped on Railway deploys).
+
+---
+
+### 4b. Set Up Redis on Railway (Recommended)
+
+1. In your Railway project, click **"+ New"** → **"Database"** → **"Redis"**
+2. Click on the Redis service and go to **"Variables"**
+3. Copy the `REDIS_URL` value
+4. Add it to your bot's environment variables in Railway
+
+This ensures verification codes survive deployments and restarts.
 
 ---
 
@@ -231,9 +245,11 @@ jaime-tiktok-bot/
 | **Node.js 18+** | Runtime (native fetch support) |
 | **discord.js v14** | Discord bot framework |
 | **Express.js** | Web server for dashboard |
+| **ioredis** | Redis client for persistent storage |
 | **Vercel** | Website hosting |
 | **Railway** | 24/7 bot hosting |
-| **JSON file storage** | Persistent verified users database |
+| **Redis** | Persistent pending verifications (survives deploys) |
+| **JSON file storage** | Verified users database (fallback for pending) |
 
 ---
 
