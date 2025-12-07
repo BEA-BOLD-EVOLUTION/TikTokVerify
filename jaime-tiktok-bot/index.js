@@ -713,7 +713,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
               }
             }
             
-            console.log(`[VERIFY] Attempt ${attempt}/${maxAttempts} - Bio: "${bio.substring(0, 50)}..." - Checking codes: ${allCodes.join(', ')} - Matched: ${matchedCode || 'none'}`);
+            console.log(`[VERIFY] User: ${interaction.user.tag} (${interaction.user.id}) | TikTok: @${record.username} | Attempt ${attempt}/${maxAttempts} - Bio: "${bio.substring(0, 50)}..." - Checking codes: ${allCodes.join(', ')} - Matched: ${matchedCode || 'none'}`);
             
             if (matchedCode) {
               verified = true;
@@ -721,7 +721,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
               break;
             }
           } else {
-            console.log(`[VERIFY] Attempt ${attempt}/${maxAttempts} - Could not fetch bio`);
+            console.log(`[VERIFY] User: ${interaction.user.tag} (${interaction.user.id}) | TikTok: @${record.username} | Attempt ${attempt}/${maxAttempts} - Could not fetch bio`);
           }
           
           // Update user on progress every 30 seconds (every 3 attempts)
