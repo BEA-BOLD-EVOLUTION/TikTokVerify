@@ -55,6 +55,9 @@ if (process.env.REDIS_URL) {
 // In-memory store of pending verifications: { discordId: { username, code, previousCodes, guildId } }
 const pendingVerifications = new Map();
 
+// Track users currently in active verification polling (to prevent multiple loops)
+const activeVerifications = new Set();
+
 // Cache for server prefixes: { guildId: prefix }
 const serverPrefixes = new Map();
 
@@ -609,6 +612,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // Button: start verification - generate code first
     if (interaction.isButton()) {
       if (interaction.customId === 'verify_tiktok_start') {
+        // Check if user already has an active verification in progress
+        if (activeVerifications.has(interaction.user.id)) {
+          return interaction.reply({
+            content: '⏳ **You already have a verification in progress!**\n\nPlease wait for your current verification to complete (up to 10 minutes).\n\nIf you need to start over, wait for the current check to finish, or ask an admin to manually verify you.',
+            ephemeral: true,
+          });
+        }
+        
         // Generate code immediately
         const code = await generateCode(interaction.guild);
         
@@ -699,6 +710,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
         }
 
+        // Check if user already has an active verification loop running
+        if (activeVerifications.has(interaction.user.id)) {
+          return interaction.reply({
+            content: '⏳ **Verification already in progress!**\n\nI\'m still checking your TikTok bio. Please wait for the current check to complete.',
+            ephemeral: true,
+          });
+        }
+
+        // Mark user as having an active verification
+        activeVerifications.add(interaction.user.id);
+
         await interaction.deferReply({ ephemeral: true });
 
         await interaction.editReply('🔍 **Checking your TikTok bio...**\n\n⏳ TikTok can take a while to sync bio changes.\nI\'ll keep checking for up to **10 minutes**. Please wait...');
@@ -710,6 +732,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         let lastBio = null;
         let foundCode = null;
         
+        try {
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           const bio = await fetchTikTokBio(record.username, attempt);
           
@@ -808,6 +831,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
           await interaction.editReply(
             `⚠️ I could not find the verification code after checking for 10 minutes.\n\n**Profile:** @${record.username}\n**Accepted codes:** ${allCodes.map(c => '\`' + c + '\`').join(', ')}\n\n**Make sure:**\n• Your profile is **public**\n• Your bio contains one of the codes above\n• You saved the bio changes on TikTok\n\n**Still not working?** Ask an admin to use \`!manual-verify\` to verify you manually.`,
           );
+        }
+        } finally {
+          // Always remove from active verifications when done
+          activeVerifications.delete(interaction.user.id);
         }
       }
     }
