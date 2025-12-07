@@ -30,7 +30,7 @@ const PREFIX = process.env.BOT_PREFIX || '!';
 const VERIFIED_ROLE_ID = process.env.VERIFIED_ROLE_ID;
 const VERIFIED_USERS_FILE = path.join(__dirname, 'verified-users.json');
 
-// In-memory store of pending verifications: { discordId: { username, code, guildId } }
+// In-memory store of pending verifications: { discordId: { username, code, previousCodes, guildId } }
 const pendingVerifications = new Map();
 
 // Cache for server prefixes: { guildId: prefix }
@@ -470,9 +470,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
         // Generate code immediately
         const code = await generateCode(interaction.guild);
         
-        // Store the code for this user
+        // Get existing record to preserve previous codes
+        const existingRecord = pendingVerifications.get(interaction.user.id);
+        const previousCodes = existingRecord?.previousCodes || [];
+        
+        // Add current code to previous codes (keep last 2)
+        if (existingRecord?.code) {
+          previousCodes.unshift(existingRecord.code);
+          if (previousCodes.length > 2) previousCodes.pop();
+        }
+        
+        // Store the code for this user with previous codes
         pendingVerifications.set(interaction.user.id, {
           code,
+          previousCodes,
           guildId: interaction.guild.id,
         });
 
@@ -538,6 +549,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const delayBetweenAttempts = 10000; // 10 seconds
         let verified = false;
         let lastBio = null;
+        let foundCode = null;
         
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           const bio = await fetchTikTokBio(record.username, attempt);
@@ -545,12 +557,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
           if (bio) {
             lastBio = bio;
             const bioUpper = bio.toUpperCase();
-            const codeUpper = record.code.toUpperCase();
             
-            console.log(`[VERIFY] Attempt ${attempt}/${maxAttempts} - Bio: "${bio.substring(0, 50)}..." - Contains code: ${bioUpper.includes(codeUpper)}`);
+            // Check current code AND previous 2 codes (handles TikTok CDN lag)
+            const allCodes = [record.code, ...(record.previousCodes || [])];
+            let matchedCode = null;
             
-            if (bioUpper.includes(codeUpper)) {
+            for (const code of allCodes) {
+              if (bioUpper.includes(code.toUpperCase())) {
+                matchedCode = code;
+                break;
+              }
+            }
+            
+            console.log(`[VERIFY] Attempt ${attempt}/${maxAttempts} - Bio: "${bio.substring(0, 50)}..." - Checking codes: ${allCodes.join(', ')} - Matched: ${matchedCode || 'none'}`);
+            
+            if (matchedCode) {
               verified = true;
+              foundCode = matchedCode;
               break;
             }
           } else {
@@ -610,11 +633,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
           );
 
           await interaction.editReply(
-            `🎉 Verification successful!\n\nI found the code **${record.code}** in the bio of **@${record.username}**.\nYou've been given the **Verified Viewer** role.\n\nYou can remove the code from your TikTok bio now. 💀`,
+            `🎉 Verification successful!\n\nI found the code **${foundCode}** in the bio of **@${record.username}**.\nYou've been given the **Verified Viewer** role.\n\nYou can remove the code from your TikTok bio now. 💀`,
           );
         } else {
+          const allCodes = [record.code, ...(record.previousCodes || [])];
           await interaction.editReply(
-            `⚠️ I could not find the verification code after checking for 10 minutes.\n\n**Profile:** @${record.username}\n**Expected code:** \`${record.code}\`\n\n**Make sure:**\n• Your profile is **public**\n• Your bio contains exactly: \`${record.code}\`\n• You saved the bio changes on TikTok\n\n**Still not working?** Ask an admin to use \`!manual-verify\` to verify you manually.`,
+            `⚠️ I could not find the verification code after checking for 10 minutes.\n\n**Profile:** @${record.username}\n**Accepted codes:** ${allCodes.map(c => '\`' + c + '\`').join(', ')}\n\n**Make sure:**\n• Your profile is **public**\n• Your bio contains one of the codes above\n• You saved the bio changes on TikTok\n\n**Still not working?** Ask an admin to use \`!manual-verify\` to verify you manually.`,
           );
         }
       }
