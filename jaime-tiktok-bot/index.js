@@ -486,7 +486,7 @@ client.on(Events.MessageCreate, async (message) => {
 
     await message.channel.send({
       content:
-        '👋 **TikTok Verification**\n\nVerify your TikTok account to link your identity across platforms.\n\nClick the button below to start verification.\n\nOnce verified, you\'ll receive the **Verified Viewer** role.\n\n💀 Click below to begin:',
+        '👋 **TikTok Verification**\n\nVerify your TikTok account to link your identity across platforms.\n\n**Before you start:**\n• Your TikTok profile must be **PUBLIC** (not private)\n• You\'ll receive a code like `JAIME-12345`\n• Add the code to the **BEGINNING** of your TikTok bio\n• Wait 30-60 seconds after saving before verifying\n\nOnce verified, you\'ll receive the **Verified Viewer** role.\n\n💀 Click below to begin:',
       components: [row],
     });
 
