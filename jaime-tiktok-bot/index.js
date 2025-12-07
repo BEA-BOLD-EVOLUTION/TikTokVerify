@@ -207,6 +207,21 @@ function addVerifiedUser(guildId, discordId, discordTag, tiktokUsername) {
   saveVerifiedUsers(users);
 }
 
+// Remove a verified user
+function removeVerifiedUser(guildId, discordId) {
+  const users = loadVerifiedUsers();
+  if (!users[guildId]) return false;
+  
+  const index = users[guildId].findIndex(u => u.discordId === discordId);
+  if (index >= 0) {
+    const removed = users[guildId].splice(index, 1)[0];
+    saveVerifiedUsers(users);
+    console.log(`[UNVERIFY] Removed ${removed.discordTag} (${discordId}) | TikTok: @${removed.tiktokUsername} | Guild: ${guildId}`);
+    return true;
+  }
+  return false;
+}
+
 // Get verified users for a guild
 function getVerifiedUsers(guildId) {
   const users = loadVerifiedUsers();
@@ -903,6 +918,32 @@ client.on(Events.InteractionCreate, async (interaction) => {
         // ignore double reply errors
       }
     }
+  }
+});
+
+// Handle role changes - auto-unverify when Verified role is removed
+client.on('guildMemberUpdate', async (oldMember, newMember) => {
+  try {
+    // Check if Verified role was removed
+    const hadVerifiedRole = oldMember.roles.cache.has(VERIFIED_ROLE_ID);
+    const hasVerifiedRole = newMember.roles.cache.has(VERIFIED_ROLE_ID);
+    
+    if (hadVerifiedRole && !hasVerifiedRole) {
+      // Role was removed - unverify the user
+      const removed = removeVerifiedUser(newMember.guild.id, newMember.id);
+      if (removed) {
+        console.log(`[ROLE] Verified role removed from ${newMember.user.tag} (${newMember.id}) - unverified`);
+      }
+      
+      // Also clear any pending verification
+      if (pendingVerifications.has(newMember.id)) {
+        pendingVerifications.delete(newMember.id);
+        await redisDeletePending(newMember.id);
+        console.log(`[ROLE] Cleared pending verification for ${newMember.user.tag}`);
+      }
+    }
+  } catch (err) {
+    console.error('[ROLE] Error handling role change:', err);
   }
 });
 
