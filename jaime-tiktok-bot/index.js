@@ -531,31 +531,59 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         await interaction.deferReply({ ephemeral: true });
 
-        await interaction.editReply('🔍 **Checking your TikTok bio...**\n\n⏳ This can take up to **30 seconds** due to TikTok\'s servers syncing.\nPlease wait...');
+        await interaction.editReply('🔍 **Checking your TikTok bio...**\n\n⏳ TikTok can take a while to sync bio changes.\nI\'ll keep checking for up to **5 minutes**. Please wait...');
 
-        // Use 5 retries with progressive delays to handle TikTok caching
-        const bio = await fetchTikTokBioWithRetry(record.username, 5);
+        // Poll for up to 5 minutes (30 attempts, 10 seconds apart)
+        const maxAttempts = 30;
+        const delayBetweenAttempts = 10000; // 10 seconds
+        let verified = false;
+        let lastBio = null;
+        
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          const bio = await fetchTikTokBio(record.username, attempt);
+          
+          if (bio) {
+            lastBio = bio;
+            const bioUpper = bio.toUpperCase();
+            const codeUpper = record.code.toUpperCase();
+            
+            console.log(`[VERIFY] Attempt ${attempt}/${maxAttempts} - Bio: "${bio.substring(0, 50)}..." - Contains code: ${bioUpper.includes(codeUpper)}`);
+            
+            if (bioUpper.includes(codeUpper)) {
+              verified = true;
+              break;
+            }
+          } else {
+            console.log(`[VERIFY] Attempt ${attempt}/${maxAttempts} - Could not fetch bio`);
+          }
+          
+          // Update user on progress every 30 seconds (every 3 attempts)
+          if (attempt % 3 === 0 && attempt < maxAttempts) {
+            const minutesLeft = Math.ceil((maxAttempts - attempt) * delayBetweenAttempts / 60000);
+            await interaction.editReply(`🔍 **Still checking your TikTok bio...**\n\n⏳ Attempt ${attempt}/${maxAttempts} - Checking for up to ${minutesLeft} more minute(s).\nTikTok CDN can be slow to update. Please wait...`);
+          }
+          
+          // Wait before next attempt (except on last attempt)
+          if (attempt < maxAttempts) {
+            await new Promise(r => setTimeout(r, delayBetweenAttempts));
+          }
+        }
         
         // Debug logging
         console.log(`[VERIFY] User: ${interaction.user.tag}`);
         console.log(`[VERIFY] TikTok: @${record.username}`);
         console.log(`[VERIFY] Expected code: ${record.code}`);
-        console.log(`[VERIFY] Fetched bio: "${bio}"`);
+        console.log(`[VERIFY] Final bio: "${lastBio}"`);
+        console.log(`[VERIFY] Verified: ${verified}`);
         
-        if (!bio) {
+        if (!lastBio) {
           console.log(`[VERIFY] FAILED - No bio returned`);
           return interaction.editReply(
             '❌ I could not read your TikTok profile.\n\n**Troubleshooting:**\n• Make sure your profile is **public** (not private)\n• If you edited on mobile, wait 1-2 minutes for TikTok to sync\n• Try opening your profile on tiktok.com to force a refresh\n• Then click **"I Added the Code"** again',
           );
         }
 
-        // Check if code is in bio (case-insensitive to handle edge cases)
-        const bioUpper = bio.toUpperCase();
-        const codeUpper = record.code.toUpperCase();
-        
-        console.log(`[VERIFY] Bio contains code? ${bioUpper.includes(codeUpper)}`);
-        
-        if (bioUpper.includes(codeUpper)) {
+        if (verified) {
           // Verified
           pendingVerifications.delete(interaction.user.id);
 
@@ -586,7 +614,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           );
         } else {
           await interaction.editReply(
-            `⚠️ I could not find the verification code in the bio for **@${record.username}**.\n\n**Make sure:**\n• Your profile is **public**\n• Your bio contains exactly: \`${record.code}\`\n\n**📱 If you edited on mobile:**\nTikTok can take 1-2 minutes to sync changes to their website. Try:\n1. Open your profile on **tiktok.com** in a browser\n2. Refresh the page to see if your bio updated\n3. Then click **"I Added the Code"** again\n\nThe code is case-sensitive!`,
+            `⚠️ I could not find the verification code after checking for 5 minutes.\n\n**Profile:** @${record.username}\n**Expected code:** \`${record.code}\`\n\n**Make sure:**\n• Your profile is **public**\n• Your bio contains exactly: \`${record.code}\`\n• You saved the bio changes on TikTok\n\n**Still not working?** Ask an admin to use \`!manual-verify\` to verify you manually.`,
           );
         }
       }
