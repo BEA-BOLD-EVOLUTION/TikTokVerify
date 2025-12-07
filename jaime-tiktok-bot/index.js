@@ -531,10 +531,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         await interaction.deferReply({ ephemeral: true });
 
-        await interaction.editReply('🔍 **Checking your TikTok bio...**\n\n⏳ TikTok can take a while to sync bio changes.\nI\'ll keep checking for up to **5 minutes**. Please wait...');
+        await interaction.editReply('🔍 **Checking your TikTok bio...**\n\n⏳ TikTok can take a while to sync bio changes.\nI\'ll keep checking for up to **10 minutes**. Please wait...');
 
-        // Poll for up to 5 minutes (30 attempts, 10 seconds apart)
-        const maxAttempts = 30;
+        // Poll for up to 10 minutes (60 attempts, 10 seconds apart)
+        const maxAttempts = 60;
         const delayBetweenAttempts = 10000; // 10 seconds
         let verified = false;
         let lastBio = null;
@@ -614,7 +614,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           );
         } else {
           await interaction.editReply(
-            `⚠️ I could not find the verification code after checking for 5 minutes.\n\n**Profile:** @${record.username}\n**Expected code:** \`${record.code}\`\n\n**Make sure:**\n• Your profile is **public**\n• Your bio contains exactly: \`${record.code}\`\n• You saved the bio changes on TikTok\n\n**Still not working?** Ask an admin to use \`!manual-verify\` to verify you manually.`,
+            `⚠️ I could not find the verification code after checking for 10 minutes.\n\n**Profile:** @${record.username}\n**Expected code:** \`${record.code}\`\n\n**Make sure:**\n• Your profile is **public**\n• Your bio contains exactly: \`${record.code}\`\n• You saved the bio changes on TikTok\n\n**Still not working?** Ask an admin to use \`!manual-verify\` to verify you manually.`,
           );
         }
       }
