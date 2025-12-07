@@ -435,6 +435,139 @@ function startHealthCheckScheduler() {
   console.log('[Health Check] Scheduler started - will check every 4 hours');
 }
 
+// Background verification checker - runs every 2 hours to check all pending verifications
+async function runBackgroundVerificationCheck() {
+  console.log('[Background Verify] Starting check of all pending verifications...');
+  
+  // Sync from Redis first
+  if (redis) {
+    try {
+      const keys = await redis.keys(`${REDIS_PREFIX}pending:*`);
+      for (const key of keys) {
+        const data = await redis.get(key);
+        if (data) {
+          const parsed = JSON.parse(data);
+          const discordId = key.replace(`${REDIS_PREFIX}pending:`, '');
+          if (!pendingVerifications.has(discordId)) {
+            pendingVerifications.set(discordId, parsed);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[Background Verify] Error syncing from Redis:', err.message);
+    }
+  }
+
+  const pending = Array.from(pendingVerifications.entries());
+  console.log(`[Background Verify] Checking ${pending.length} pending verifications...`);
+
+  for (const [discordId, record] of pending) {
+    if (!record.username) {
+      console.log(`[Background Verify] Skipping ${discordId} - no username in record`);
+      continue;
+    }
+
+    try {
+      const bio = await fetchTikTokBio(record.username, 0);
+      
+      if (!bio) {
+        console.log(`[Background Verify] ${discordId} (@${record.username}) - Could not fetch bio`);
+        continue;
+      }
+
+      const bioUpper = bio.toUpperCase();
+      const allCodes = [record.code, ...(record.previousCodes || [])];
+      let matchedCode = null;
+
+      for (const code of allCodes) {
+        const codeUpper = code.toUpperCase();
+        const typoVariant = codeUpper.replace('JAIME', 'JAMIE');
+        
+        if (bioUpper.includes(codeUpper) || bioUpper.includes(typoVariant)) {
+          matchedCode = code;
+          break;
+        }
+      }
+
+      if (matchedCode) {
+        console.log(`[Background Verify] ✅ MATCH FOUND! ${discordId} (@${record.username}) - Code: ${matchedCode}`);
+        
+        // Verify the user
+        try {
+          const guild = client.guilds.cache.get(record.guildId);
+          if (!guild) {
+            console.log(`[Background Verify] Could not find guild ${record.guildId}`);
+            continue;
+          }
+
+          const member = await guild.members.fetch(discordId).catch(() => null);
+          if (!member) {
+            console.log(`[Background Verify] Could not find member ${discordId} in guild`);
+            continue;
+          }
+
+          const role = guild.roles.cache.get(VERIFIED_ROLE_ID);
+          if (!role) {
+            console.log(`[Background Verify] Could not find verified role`);
+            continue;
+          }
+
+          await member.roles.add(role);
+
+          // Save to verified users list
+          addVerifiedUser(record.guildId, discordId, member.user.tag, record.username);
+
+          // Remove from pending
+          pendingVerifications.delete(discordId);
+          if (redis) {
+            await redisDeletePending(discordId);
+          } else {
+            savePendingVerifications();
+          }
+
+          // Try to DM the user
+          try {
+            await member.send(`🎉 **Verification successful!**\n\nI found the code **${matchedCode}** in the bio of **@${record.username}**.\nYou've been given the **Verified Viewer** role in **${guild.name}**.\n\nYou can remove the code from your TikTok bio now. 💀`);
+            console.log(`[Background Verify] Sent DM to ${member.user.tag}`);
+          } catch (dmErr) {
+            console.log(`[Background Verify] Could not DM ${member.user.tag} - DMs may be disabled`);
+          }
+
+        } catch (verifyErr) {
+          console.error(`[Background Verify] Error verifying ${discordId}:`, verifyErr.message);
+        }
+      } else {
+        console.log(`[Background Verify] ${discordId} (@${record.username}) - No code match. Bio: "${bio.substring(0, 40)}..."`);
+      }
+
+      // Small delay between checks to avoid rate limiting
+      await new Promise(r => setTimeout(r, 2000));
+      
+    } catch (err) {
+      console.error(`[Background Verify] Error checking ${discordId}:`, err.message);
+    }
+  }
+
+  console.log('[Background Verify] Check complete.');
+}
+
+// Start background verification scheduler
+function startBackgroundVerificationScheduler() {
+  const TWO_HOURS = 2 * 60 * 60 * 1000;
+  
+  // Run initial check after 2 minutes (give time for bot to fully start)
+  setTimeout(async () => {
+    await runBackgroundVerificationCheck();
+  }, 2 * 60 * 1000);
+  
+  // Then run every 2 hours
+  setInterval(async () => {
+    await runBackgroundVerificationCheck();
+  }, TWO_HOURS);
+  
+  console.log('[Background Verify] Scheduler started - will check every 2 hours');
+}
+
 // Load pending verifications from file before connecting
 loadPendingVerifications();
 
@@ -444,6 +577,9 @@ client.once(Events.ClientReady, (c) => {
   
   // Start health check scheduler
   startHealthCheckScheduler();
+  
+  // Start background verification scheduler
+  startBackgroundVerificationScheduler();
 });
 
 // Simple text command: !setup-verify
@@ -607,6 +743,68 @@ client.on(Events.MessageCreate, async (message) => {
       await message.reply(`❌ Error: ${err.message}`);
     }
   }
+
+  // Command: !pending - Show all pending verifications (admin only)
+  if (command.toLowerCase() === 'pending') {
+    if (
+      !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
+    ) {
+      return message.reply("You don't have permission to use this.");
+    }
+
+    const statusMsg = await message.reply('🔍 Fetching pending verifications...');
+
+    // Get from in-memory Map and refresh from Redis
+    const pendingList = [];
+    
+    // First, sync from Redis if available
+    if (redis) {
+      try {
+        const keys = await redis.keys('pending:*');
+        for (const key of keys) {
+          const data = await redis.get(key);
+          if (data) {
+            const parsed = JSON.parse(data);
+            const discordId = key.replace('pending:', '');
+            if (!pendingVerifications.has(discordId)) {
+              pendingVerifications.set(discordId, parsed);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching from Redis:', err);
+      }
+    }
+
+    // Build list from in-memory map
+    for (const [discordId, record] of pendingVerifications) {
+      pendingList.push({
+        discordId,
+        username: record.username,
+        code: record.code,
+        previousCodes: record.previousCodes || [],
+        createdAt: record.createdAt
+      });
+    }
+
+    if (pendingList.length === 0) {
+      return statusMsg.edit('✅ No pending verifications.');
+    }
+
+    // Format output
+    let output = `📋 **Pending Verifications:** ${pendingList.length}\n\n`;
+    
+    for (const p of pendingList.slice(0, 20)) {
+      const allCodes = [p.code, ...p.previousCodes].slice(0, 3);
+      output += `• <@${p.discordId}> → **@${p.username}** | Codes: ${allCodes.map(c => '`' + c + '`').join(', ')}\n`;
+    }
+
+    if (pendingList.length > 20) {
+      output += `\n_...and ${pendingList.length - 20} more_`;
+    }
+
+    await statusMsg.edit(output);
+  }
 });
 
 // Handle interactions (buttons + modals)
@@ -713,128 +911,124 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
         }
 
-        // Check if user already has an active verification loop running
+        // Check if user already has an active verification check running
         if (activeVerifications.has(interaction.user.id)) {
           return interaction.reply({
-            content: '⏳ **Verification already in progress!**\n\nI\'m still checking your TikTok bio. Please wait for the current check to complete.',
+            content: '⏳ **Check already in progress!**\n\nPlease wait a moment for the current check to complete.',
             ephemeral: true,
           });
         }
 
-        // Mark user as having an active verification
+        // Mark user as having an active verification check
         activeVerifications.add(interaction.user.id);
 
         await interaction.deferReply({ ephemeral: true });
 
-        await interaction.editReply('🔍 **Checking your TikTok bio...**\n\n⏳ TikTok can take a while to sync bio changes.\nI\'ll keep checking for up to **10 minutes**. Please wait...');
+        await interaction.editReply('🔍 **Checking your TikTok bio...**\n\nThis will only take a moment...');
 
-        // Poll for up to 10 minutes (60 attempts, 10 seconds apart)
-        const maxAttempts = 60;
-        const delayBetweenAttempts = 10000; // 10 seconds
+        // Quick check - 3 attempts with short delays (handles immediate cases)
+        const maxAttempts = 3;
+        const delayBetweenAttempts = 3000; // 3 seconds
         let verified = false;
         let lastBio = null;
         let foundCode = null;
         
         try {
-        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-          const bio = await fetchTikTokBio(record.username, attempt);
-          
-          if (bio) {
-            lastBio = bio;
-            const bioUpper = bio.toUpperCase();
+          for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            const bio = await fetchTikTokBio(record.username, attempt);
             
-            // Check current code AND previous codes (handles TikTok CDN lag)
-            const allCodes = [record.code, ...(record.previousCodes || [])];
-            let matchedCode = null;
-            
-            for (const code of allCodes) {
-              const codeUpper = code.toUpperCase();
-              // Also check for common typo: JAMIE instead of JAIME
-              const typoVariant = codeUpper.replace('JAIME', 'JAMIE');
+            if (bio) {
+              lastBio = bio;
+              const bioUpper = bio.toUpperCase();
               
-              if (bioUpper.includes(codeUpper) || bioUpper.includes(typoVariant)) {
-                matchedCode = code;
+              // Check current code AND previous codes (handles TikTok CDN lag)
+              const allCodes = [record.code, ...(record.previousCodes || [])];
+              let matchedCode = null;
+              
+              for (const code of allCodes) {
+                const codeUpper = code.toUpperCase();
+                // Also check for common typo: JAMIE instead of JAIME
+                const typoVariant = codeUpper.replace('JAIME', 'JAMIE');
+                
+                if (bioUpper.includes(codeUpper) || bioUpper.includes(typoVariant)) {
+                  matchedCode = code;
+                  break;
+                }
+              }
+              
+              console.log(`[VERIFY] User: ${interaction.user.tag} (${interaction.user.id}) | TikTok: @${record.username} | Quick check ${attempt}/${maxAttempts} - Bio: "${bio.substring(0, 50)}..." - Checking codes: ${allCodes.join(', ')} - Matched: ${matchedCode || 'none'}`);
+              
+              if (matchedCode) {
+                verified = true;
+                foundCode = matchedCode;
                 break;
               }
+            } else {
+              console.log(`[VERIFY] User: ${interaction.user.tag} (${interaction.user.id}) | TikTok: @${record.username} | Quick check ${attempt}/${maxAttempts} - Could not fetch bio`);
             }
             
-            console.log(`[VERIFY] User: ${interaction.user.tag} (${interaction.user.id}) | TikTok: @${record.username} | Attempt ${attempt}/${maxAttempts} - Bio: "${bio.substring(0, 50)}..." - Checking codes: ${allCodes.join(', ')} - Matched: ${matchedCode || 'none'}`);
-            
-            if (matchedCode) {
-              verified = true;
-              foundCode = matchedCode;
-              break;
+            // Wait before next attempt (except on last attempt)
+            if (attempt < maxAttempts) {
+              await new Promise(r => setTimeout(r, delayBetweenAttempts));
             }
-          } else {
-            console.log(`[VERIFY] User: ${interaction.user.tag} (${interaction.user.id}) | TikTok: @${record.username} | Attempt ${attempt}/${maxAttempts} - Could not fetch bio`);
           }
           
-          // Update user on progress every 30 seconds (every 3 attempts)
-          if (attempt % 3 === 0 && attempt < maxAttempts) {
-            const minutesLeft = Math.ceil((maxAttempts - attempt) * delayBetweenAttempts / 60000);
-            await interaction.editReply(`🔍 **Still checking your TikTok bio...**\n\n⏳ Attempt ${attempt}/${maxAttempts} - Checking for up to ${minutesLeft} more minute(s).\nTikTok CDN can be slow to update. Please wait...`);
-          }
+          // Debug logging
+          console.log(`[VERIFY] User: ${interaction.user.tag}`);
+          console.log(`[VERIFY] TikTok: @${record.username}`);
+          console.log(`[VERIFY] Expected code: ${record.code}`);
+          console.log(`[VERIFY] Final bio: "${lastBio}"`);
+          console.log(`[VERIFY] Verified: ${verified}`);
           
-          // Wait before next attempt (except on last attempt)
-          if (attempt < maxAttempts) {
-            await new Promise(r => setTimeout(r, delayBetweenAttempts));
-          }
-        }
-        
-        // Debug logging
-        console.log(`[VERIFY] User: ${interaction.user.tag}`);
-        console.log(`[VERIFY] TikTok: @${record.username}`);
-        console.log(`[VERIFY] Expected code: ${record.code}`);
-        console.log(`[VERIFY] Final bio: "${lastBio}"`);
-        console.log(`[VERIFY] Verified: ${verified}`);
-        
-        if (!lastBio) {
-          console.log(`[VERIFY] FAILED - No bio returned`);
-          return interaction.editReply(
-            '❌ I could not read your TikTok profile.\n\n**Troubleshooting:**\n• Make sure your profile is **public** (not private)\n• If you edited on mobile, wait 1-2 minutes for TikTok to sync\n• Try opening your profile on tiktok.com to force a refresh\n• Then click **"I Added the Code"** again',
-          );
-        }
-
-        if (verified) {
-          // Verified
-          pendingVerifications.delete(interaction.user.id);
-          if (redis) {
-            await redisDeletePending(interaction.user.id);
-          } else {
-            savePendingVerifications();
-          }
-
-          const member = await interaction.guild.members.fetch(
-            interaction.user.id,
-          );
-          const role = interaction.guild.roles.cache.get(VERIFIED_ROLE_ID);
-
-          if (!role) {
+          if (!lastBio) {
+            console.log(`[VERIFY] FAILED - No bio returned`);
             await interaction.editReply(
-              'I verified your TikTok, but the Verified role is not configured correctly. Please contact a mod.',
+              '❌ I could not read your TikTok profile.\n\n**Troubleshooting:**\n• Make sure your profile is **public** (not private)\n• Your username might be incorrect\n• Try opening your profile on tiktok.com to confirm it\'s public\n\nOnce fixed, click **"I Added the Code"** again.',
             );
             return;
           }
 
-          await member.roles.add(role);
+          if (verified) {
+            // Verified immediately!
+            pendingVerifications.delete(interaction.user.id);
+            if (redis) {
+              await redisDeletePending(interaction.user.id);
+            } else {
+              savePendingVerifications();
+            }
 
-          // Save to verified users list
-          addVerifiedUser(
-            interaction.guild.id,
-            interaction.user.id,
-            interaction.user.tag,
-            record.username
-          );
+            const member = await interaction.guild.members.fetch(
+              interaction.user.id,
+            );
+            const role = interaction.guild.roles.cache.get(VERIFIED_ROLE_ID);
 
-          await interaction.editReply(
-            `🎉 Verification successful!\n\nI found the code **${foundCode}** in the bio of **@${record.username}**.\nYou've been given the **Verified Viewer** role.\n\nYou can remove the code from your TikTok bio now. 💀`,
-          );
-        } else {
-          const allCodes = [record.code, ...(record.previousCodes || [])];
-          await interaction.editReply(
-            `⚠️ I could not find the verification code after checking for 10 minutes.\n\n**Profile:** @${record.username}\n**Accepted codes:** ${allCodes.map(c => '\`' + c + '\`').join(', ')}\n\n**Make sure:**\n• Your profile is **public**\n• Your bio contains one of the codes above\n• You saved the bio changes on TikTok\n\n**Still not working?** Ask an admin to use \`!manual-verify\` to verify you manually.`,
-          );
-        }
+            if (!role) {
+              await interaction.editReply(
+                'I verified your TikTok, but the Verified role is not configured correctly. Please contact a mod.',
+              );
+              return;
+            }
+
+            await member.roles.add(role);
+
+            // Save to verified users list
+            addVerifiedUser(
+              interaction.guild.id,
+              interaction.user.id,
+              interaction.user.tag,
+              record.username
+            );
+
+            await interaction.editReply(
+              `🎉 **Verification successful!**\n\nI found the code **${foundCode}** in the bio of **@${record.username}**.\nYou've been given the **Verified Viewer** role.\n\nYou can remove the code from your TikTok bio now. 💀`,
+            );
+          } else {
+            // Not found immediately - tell user about background checks
+            const allCodes = [record.code, ...(record.previousCodes || [])];
+            await interaction.editReply(
+              `⏳ **Code not found yet - but don't worry!**\n\n**TikTok's servers can take up to 24 hours** to sync bio changes across their network.\n\n**What happens now:**\n• I'll automatically check your bio every 2 hours\n• When I find the code, I'll **DM you** and give you the role\n• You don't need to do anything else!\n\n**Your info:**\n• Profile: **@${record.username}**\n• Looking for: ${allCodes.map(c => '\`' + c + '\`').join(' or ')}\n\n**Make sure:**\n✅ Your profile is **public**\n✅ The code is in your bio\n✅ You saved the changes on TikTok\n\n_If it's been more than 24 hours, ask an admin to use \`!manual-verify\`_`,
+            );
+          }
         } finally {
           // Always remove from active verifications when done
           activeVerifications.delete(interaction.user.id);
