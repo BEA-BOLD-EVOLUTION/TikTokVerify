@@ -11,11 +11,14 @@ A Discord bot that verifies users' TikTok accounts by checking for a unique code
 - 💾 **Persistent storage** - Verified users AND pending verifications survive restarts
 - 🌐 **24/7 hosting ready** - Designed for Railway, Heroku, or any Node.js host
 - 🏥 **Health checks** - Automatic checks every 4 hours to ensure TikTok access
-- 🔧 **Smart TikTok fetching** - Uses Android mobile headers to bypass blocking
+- 🔧 **Smart TikTok fetching** - Uses Android mobile headers + cache-busting to bypass CDN
 - 🔗 **Flexible input** - Accepts username (`bea.spoke`), handle (`@bea.spoke`), or full URL
 - 👮 **Manual verify** - Admins can manually verify users when needed
-- ⏳ **Extended polling** - Checks TikTok bio for up to 10 minutes (TikTok CDN can be slow)
+- ⏳ **Background verification** - Checks pending verifications every 2 hours for up to 24 hours
 - 🔄 **Previous codes accepted** - Accepts last 5 codes if user regenerates during verification
+- 📬 **DM notifications** - Users get a DM when background verification succeeds
+- 🚫 **Auto-unverify** - When Verified role is removed, user is removed from verified list
+- ✏️ **Typo tolerance** - Accepts common typos like `JAMIE` instead of `JAIME`
 
 ## How Verification Works
 
@@ -23,8 +26,11 @@ A Discord bot that verifies users' TikTok accounts by checking for a unique code
 2. Bot shows a unique verification code
 3. User adds the code to the **beginning** of their TikTok bio
 4. User clicks **"I Added the Code"** and enters their TikTok profile link
-5. Bot checks their bio for the code
-6. If found, user receives the **Verified** role and is saved to the database
+5. Bot does a **quick check** (3 attempts)
+6. If found immediately → User receives the **Verified** role 🎉
+7. If not found → Bot tells user it will **check every 2 hours** and DM them when verified
+8. Background job runs every 2 hours, checking all pending verifications
+9. When code is found → User gets the role and receives a DM notification
 
 ---
 
@@ -148,7 +154,8 @@ You should see: `Logged in as YourBotName#1234`
 |---------|-------------|
 | `!setup-verify` | Creates the verification panel in the current channel (Admin only) |
 | `!verified-list` | Shows all verified users with their TikTok profiles |
-| `!verified-export` | Exports verified users as a JSON file |
+| `!verified-export` | Exports verified users as a CSV file |
+| `!pending` | Shows all pending verifications from Redis |
 | `!test-tiktok` | Tests if the bot can read TikTok bios (health check) |
 | `!test-tiktok @username` | Tests reading a specific user's TikTok bio |
 | `!manual-verify @user @tiktok` | Manually verify a user without bio check (Admin only) |
@@ -169,8 +176,11 @@ Users can enter their TikTok in any of these formats:
 3. User adds the code to the **beginning** of their TikTok bio
 4. User clicks **"I Added the Code"**
 5. User enters their TikTok profile link in the modal
-6. Bot checks their TikTok bio for the code
-7. If found, user receives the **Verified** role and is saved to the database
+6. Bot does a quick check (3 attempts over ~10 seconds)
+7. **If found immediately:** User receives the **Verified** role 🎉
+8. **If not found:** Bot tells user it will check every 2 hours and DM them when verified
+9. Background job runs every 2 hours, checking all pending verifications
+10. When code is found, user receives a DM and gets the Verified role
 
 ---
 
@@ -198,10 +208,13 @@ Ensure the bot's role is **higher** than the Verified Viewer role in Server Sett
 
 ### TikTok CDN caching (bio changes not showing)
 
-- TikTok's CDN can take **several minutes** to propagate bio changes
-- The bot polls for up to **10 minutes** (60 attempts, 10 seconds apart)
-- If verification fails, users can try again - the bot accepts the **last 5 codes** they generated
-- Pending verifications are saved to file, so codes survive bot restarts/redeploys
+- TikTok's CDN can take **up to 24 hours** to propagate bio changes globally
+- The bot uses cache-busting query parameters to try to get fresh content
+- Quick check does 3 attempts when user clicks "I Added the Code"
+- **Background verification** runs every 2 hours to catch delayed CDN updates
+- If verification doesn't complete in 24 hours, users should contact an admin
+- Admins can use `!pending` to see all pending verifications
+- Admins can use `!manual-verify @user @tiktok` to bypass the bio check
 
 ### Bot not responding to commands
 
