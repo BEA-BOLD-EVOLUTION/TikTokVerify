@@ -619,10 +619,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
         const previousCodes = existingRecord?.previousCodes || [];
         
-        // Add current code to previous codes (keep last 2)
+        // Add current code to previous codes (keep last 5)
         if (existingRecord?.code) {
           previousCodes.unshift(existingRecord.code);
-          if (previousCodes.length > 2) previousCodes.pop();
+          if (previousCodes.length > 5) previousCodes.pop();
         }
         
         // Store the code for this user with previous codes

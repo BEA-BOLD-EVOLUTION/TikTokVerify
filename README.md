@@ -15,7 +15,7 @@ A Discord bot that verifies users' TikTok accounts by checking for a unique code
 - 🔗 **Flexible input** - Accepts username (`bea.spoke`), handle (`@bea.spoke`), or full URL
 - 👮 **Manual verify** - Admins can manually verify users when needed
 - ⏳ **Extended polling** - Checks TikTok bio for up to 10 minutes (TikTok CDN can be slow)
-- 🔄 **Previous codes accepted** - Accepts last 2 codes if user regenerates during verification
+- 🔄 **Previous codes accepted** - Accepts last 5 codes if user regenerates during verification
 
 ## How Verification Works
 
@@ -200,7 +200,7 @@ Ensure the bot's role is **higher** than the Verified Viewer role in Server Sett
 
 - TikTok's CDN can take **several minutes** to propagate bio changes
 - The bot polls for up to **10 minutes** (60 attempts, 10 seconds apart)
-- If verification fails, users can try again - the bot accepts the **last 2 codes** they generated
+- If verification fails, users can try again - the bot accepts the **last 5 codes** they generated
 - Pending verifications are saved to file, so codes survive bot restarts/redeploys
 
 ### Bot not responding to commands
