@@ -286,6 +286,60 @@
             line-height: 1.6;
         }
 
+        /* FAQ Section */
+        .faq-section {
+            padding: 60px 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .faq-section h2 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+
+        .faq-section .faq-subtitle {
+            color: var(--text-secondary);
+            text-align: center;
+            margin-bottom: 40px;
+            font-size: 0.95rem;
+        }
+
+        .faq-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 20px;
+        }
+
+        .faq-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            transition: all 0.3s ease;
+        }
+
+        .faq-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--accent);
+            box-shadow: 0 10px 30px rgba(88, 101, 242, 0.15);
+        }
+
+        .faq-card h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: var(--text-primary);
+        }
+
+        .faq-card p {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            line-height: 1.7;
+        }
+
         /* Content Sections */
         .content-section {
             display: none;
@@ -554,6 +608,7 @@
                 <a href="#home" onclick="showSection('home', event)" class="active" id="nav-home">Home</a>
                 <a href="#about" onclick="showSection('about', event)" id="nav-about">About</a>
                 <a href="#howto" onclick="showSection('howto', event)" id="nav-howto">How To</a>
+                <a href="#faq" onclick="showSection('faq', event)" id="nav-faq">FAQ</a>
                 <a href="#modguide" onclick="showSection('modguide', event)" id="nav-modguide">Setup Guide</a>
                 <a href="#terms" onclick="showSection('terms', event)" id="nav-terms">Terms</a>
                 <a href="#privacy" onclick="showSection('privacy', event)" id="nav-privacy">Privacy</a>
@@ -715,6 +770,39 @@
 
         <div class="warning-box">
             <p><strong>⏳ Why does it take time?</strong> TikTok's servers can take up to 24 hours to sync bio changes globally. The bot checks every 2 hours and will DM you when your verification succeeds. If it's been more than 24 hours, ask an admin for help.</p>
+        </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section id="faq" class="content-section">
+        <h1>❓ Frequently Asked Questions</h1>
+        <p class="subtitle">Simple explanations for why verification sometimes takes a few extra checks</p>
+
+        <div class="faq-grid">
+            <div class="faq-card">
+                <h3>Why doesn't the bot see my updated TikTok bio right away?</h3>
+                <p>TikTok uses many servers. Some servers update instantly, others take a few seconds. If the bot talks to a server that still has the old version, it won't see the new bio yet.</p>
+            </div>
+            <div class="faq-card">
+                <h3>What is "caching" and why does it matter?</h3>
+                <p>Caching is TikTok saving a quick copy of your bio so pages load faster. Sometimes this copy is a little old, which can delay verification.</p>
+            </div>
+            <div class="faq-card">
+                <h3>Why do different servers show different versions of a bio?</h3>
+                <p>TikTok updates its servers at different times. During that short delay, one server may have your new bio while another still shows the old one.</p>
+            </div>
+            <div class="faq-card">
+                <h3>Why does the bot check multiple times?</h3>
+                <p>If the first server it contacts hasn't updated yet, the bot won't see the code. Multiple checks give TikTok time to sync everything.</p>
+            </div>
+            <div class="faq-card">
+                <h3>What does "We'll keep checking your bio" mean?</h3>
+                <p>It means the bot didn't see the verification code yet. TikTok's servers are still updating or rate-limiting. The bot will retry automatically until it finds the new version.</p>
+            </div>
+            <div class="faq-card">
+                <h3>Do I need to do anything after adding the code to my bio?</h3>
+                <p>No. Once you add the code and confirm your profile link, the bot takes over. You'll get a DM when verification succeeds.</p>
+            </div>
         </div>
     </section>
 
