@@ -1105,18 +1105,31 @@
         <h2 id="section-troubleshooting">Troubleshooting</h2>
         
         <div class="highlight-box">
-            <h3>User cannot verify:</h3>
+            <h3>User cannot verify immediately:</h3>
             <ul>
                 <li>Profile must be <strong>public</strong>.</li>
                 <li>Code must appear at the <strong>beginning</strong> of the TikTok bio.</li>
-                <li>Profile link must be correct.</li>
-                <li>Wait 5–10 seconds after updating bio.</li>
+                <li>Profile link or username must be correct.</li>
+                <li><strong>Don't worry!</strong> The bot checks every 2 hours for up to 24 hours automatically.</li>
             </ul>
         </div>
         
         <div class="highlight-box">
-            <h3>If still not working:</h3>
-            <p>Admins may manually assign the <strong>Verified Role</strong>.</p>
+            <h3>Why does it take time?</h3>
+            <ul>
+                <li>TikTok uses CDN caching - bio updates can take minutes to hours to propagate.</li>
+                <li>Different TikTok servers may show different versions of a bio temporarily.</li>
+                <li>The bot makes 10 attempts per check to catch cached responses.</li>
+            </ul>
+        </div>
+
+        <div class="highlight-box">
+            <h3>If still not working after 24 hours:</h3>
+            <ul>
+                <li>Run <code>!check-tiktok @username</code> to verify the account exists.</li>
+                <li>Run <code>!cleanup</code> to remove stale records.</li>
+                <li>Admins can use <code>!manual-verify @user @tiktok</code> to verify manually.</li>
+            </ul>
         </div>
 
         <hr style="border: none; border-top: 1px solid var(--border); margin: 40px 0;">
@@ -1144,6 +1157,7 @@
         <hr style="border: none; border-top: 1px solid var(--border); margin: 40px 0;">
 
         <h2>Admin Bot Commands</h2>
+        <p>All commands require the <strong>Manage Roles</strong> permission.</p>
         <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
             <tr style="background: var(--bg-card); border-bottom: 1px solid var(--border);">
                 <th style="padding: 12px; text-align: left;">Command</th>
@@ -1161,7 +1175,33 @@
                 <td style="padding: 12px;"><code>!verified-export</code></td>
                 <td style="padding: 12px;">Exports CSV with: Discord ID, Discord Tag, TikTok Username, Verification time</td>
             </tr>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 12px;"><code>!pending</code></td>
+                <td style="padding: 12px;">Shows all pending verifications with usernames, codes, and time remaining</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 12px;"><code>!cleanup</code></td>
+                <td style="padding: 12px;">Removes stale/invalid pending verifications (missing usernames, expired, or non-existent TikTok accounts)</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 12px;"><code>!manual-verify @user @tiktok</code></td>
+                <td style="padding: 12px;">Manually verify a user with their TikTok username</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 12px;"><code>!unverify @user</code></td>
+                <td style="padding: 12px;">Remove verification from a user (removes role and record)</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 12px;"><code>!check-tiktok @username</code></td>
+                <td style="padding: 12px;">Check if a TikTok account exists and view their bio</td>
+            </tr>
         </table>
+
+        <h2>Background Verification</h2>
+        <div class="highlight-box">
+            <p>The bot automatically checks pending verifications <strong>every 2 hours</strong> for up to <strong>24 hours</strong>. Each check includes <strong>10 retry attempts</strong> with smart delays to handle TikTok's CDN caching.</p>
+            <p style="margin-top: 12px;">Users receive a DM when verification succeeds. Non-existent TikTok accounts are automatically removed from the queue.</p>
+        </div>
     </section>
 
     <!-- License Section -->
