@@ -744,9 +744,16 @@ async function sendAdminResponse(message, content, options = {}) {
 
 // This lets you (admin) create the panel in a channel
 client.on(Events.MessageCreate, async (message) => {
+  // Debug logging
+  console.log(`[Message] Author: ${message.author.tag}, Content: "${message.content}", Bot: ${message.author.bot}`);
+  
   if (message.author.bot) return;
-  if (!message.content.startsWith(PREFIX)) return;
+  if (!message.content.startsWith(PREFIX)) {
+    console.log(`[Message] Ignored - doesn't start with prefix "${PREFIX}"`);
+    return;
+  }
 
+  console.log(`[Command] Processing: ${message.content}`);
   const [command, ...args] = message.content.slice(PREFIX.length).trim().split(/\s+/);
 
   // Command: !test-tiktok [@username] - Test if bot can read TikTok bios (admin only)
@@ -1105,6 +1112,135 @@ client.on(Events.MessageCreate, async (message) => {
     output += `\n**Remaining pending for ${message.guild.name}:** ${guildPendingCount}`;
 
     await statusMsg.edit(output);
+  }
+
+  // Command: !check-tiktok @username - Check if a TikTok account exists (admin only)
+  if (command.toLowerCase() === 'check-tiktok') {
+    if (
+      !message.member.permissions.has(PermissionsBitField.Flags.ManageRoles)
+    ) {
+      return sendAdminResponse(message, "❌ You need **Manage Roles** permission to use this.");
+    }
+
+    let tiktokUsername = args[0];
+    if (!tiktokUsername) {
+      return sendAdminResponse(message, '❌ Usage: `!check-tiktok @username`\n\nExample: `!check-tiktok @penny.the.french.girl`');
+    }
+
+    // Remove @ if included
+    tiktokUsername = tiktokUsername.replace(/^@/, '');
+
+    // Delete command message and send via DM
+    await message.delete().catch(() => {});
+    const dmChannel = await message.author.createDM();
+    const statusMsg = await dmChannel.send(`🔍 Checking TikTok account **@${tiktokUsername}**...`);
+
+    try {
+      const result = await fetchTikTokBio(tiktokUsername, 0);
+      
+      if (result.accountNotFound) {
+        return statusMsg.edit(`❌ **Account Not Found**\n\nThe TikTok account **@${tiktokUsername}** does not exist or is private.`);
+      }
+
+      let output = `✅ **TikTok Account Found**\n\n`;
+      output += `**Username:** @${tiktokUsername}\n`;
+      output += `**Profile:** https://www.tiktok.com/@${tiktokUsername}\n\n`;
+      
+      if (result.bio) {
+        output += `**Bio:**\n\`\`\`\n${result.bio}\n\`\`\``;
+      } else if (result.emptyBio) {
+        output += `**Bio:** _(empty)_`;
+      } else {
+        output += `**Bio:** _(could not fetch)_`;
+      }
+
+      await statusMsg.edit(output);
+    } catch (err) {
+      console.error('Error checking TikTok:', err);
+      await statusMsg.edit(`❌ Error checking TikTok account: ${err.message}`);
+    }
+  }
+
+  // Command: !unverify @user - Remove verification from a user (admin only)
+  if (command.toLowerCase() === 'unverify') {
+    if (
+      !message.member.permissions.has(PermissionsBitField.Flags.ManageRoles)
+    ) {
+      return sendAdminResponse(message, "❌ You need **Manage Roles** permission to use this.");
+    }
+
+    const targetUser = message.mentions.users.first();
+    if (!targetUser) {
+      return sendAdminResponse(message, '❌ Usage: `!unverify @user`\n\nExample: `!unverify @SomeUser`');
+    }
+
+    // Delete command message and send via DM
+    await message.delete().catch(() => {});
+    const dmChannel = await message.author.createDM();
+    const statusMsg = await dmChannel.send(`🔍 Removing verification for <@${targetUser.id}>...`);
+
+    try {
+      const guildId = message.guild.id;
+      const member = await message.guild.members.fetch(targetUser.id).catch(() => null);
+      
+      // Remove from verified records
+      const verifiedKey = `verified:${guildId}`;
+      let wasVerified = false;
+      let tiktokUsername = null;
+
+      if (redis) {
+        const existing = await redis.hget(`${REDIS_PREFIX}${verifiedKey}`, targetUser.id);
+        if (existing) {
+          const parsed = JSON.parse(existing);
+          tiktokUsername = parsed.tiktokUsername;
+          await redis.hdel(`${REDIS_PREFIX}${verifiedKey}`, targetUser.id);
+          wasVerified = true;
+        }
+      } else {
+        const verifiedUsers = verifiedUsersCache.get(guildId) || {};
+        if (verifiedUsers[targetUser.id]) {
+          tiktokUsername = verifiedUsers[targetUser.id].tiktokUsername;
+          delete verifiedUsers[targetUser.id];
+          verifiedUsersCache.set(guildId, verifiedUsers);
+          saveVerifiedUsers(guildId);
+          wasVerified = true;
+        }
+      }
+
+      // Remove the verified role if member is in the server
+      let roleRemoved = false;
+      if (member && VERIFIED_ROLE_ID) {
+        const role = message.guild.roles.cache.get(VERIFIED_ROLE_ID);
+        if (role && member.roles.cache.has(VERIFIED_ROLE_ID)) {
+          await member.roles.remove(role);
+          roleRemoved = true;
+        }
+      }
+
+      if (wasVerified || roleRemoved) {
+        let output = `✅ **Verification Removed**\n\n`;
+        output += `**User:** <@${targetUser.id}>\n`;
+        if (tiktokUsername) {
+          output += `**Was verified as:** @${tiktokUsername}\n`;
+        }
+        if (roleRemoved) {
+          output += `**Role removed:** ✅\n`;
+        } else if (member) {
+          output += `**Role:** User didn't have the verified role\n`;
+        } else {
+          output += `**Role:** User not in server\n`;
+        }
+        if (wasVerified) {
+          output += `**Record deleted:** ✅`;
+        }
+        await statusMsg.edit(output);
+      } else {
+        await statusMsg.edit(`❌ <@${targetUser.id}> is not verified in this server.`);
+      }
+    } catch (err) {
+      console.error('Error unverifying user:', err);
+      await statusMsg.edit(`❌ Error removing verification: ${err.message}`);
+    }
   }
 
   // ========== BOT OWNER COMMANDS (Premium Management) ==========
