@@ -657,6 +657,29 @@ client.once(Events.ClientReady, (c) => {
 });
 
 // Simple text command: !setup-verify
+// Helper to send admin response privately via DM and delete command
+async function sendAdminResponse(message, content, options = {}) {
+  try {
+    // Delete the command message to hide it from the channel
+    await message.delete().catch(() => {});
+    
+    // Send response via DM
+    if (typeof content === 'string') {
+      await message.author.send({ content, ...options });
+    } else {
+      await message.author.send(content);
+    }
+  } catch (err) {
+    // If DM fails, send ephemeral-like response (auto-delete after 10s)
+    try {
+      const reply = await message.channel.send(typeof content === 'string' ? content : { ...content });
+      setTimeout(() => reply.delete().catch(() => {}), 10000);
+    } catch {
+      console.error('Could not send admin response:', err);
+    }
+  }
+}
+
 // This lets you (admin) create the panel in a channel
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
@@ -669,11 +692,15 @@ client.on(Events.MessageCreate, async (message) => {
     if (
       !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
     ) {
-      return message.reply("You don't have permission to use this.");
+      return sendAdminResponse(message, "❌ You don't have permission to use this.");
     }
 
     const testUser = args[0] ? args[0].replace(/^@/, '') : 'tiktok';
-    const statusMsg = await message.reply(`🔍 Testing TikTok bio fetch for **@${testUser}**...`);
+    
+    // Delete command and send "working" DM
+    await message.delete().catch(() => {});
+    const dmChannel = await message.author.createDM();
+    const statusMsg = await dmChannel.send(`🔍 Testing TikTok bio fetch for **@${testUser}**...`);
     
     const bio = await fetchTikTokBio(testUser, 0);
     
@@ -690,7 +717,7 @@ client.on(Events.MessageCreate, async (message) => {
     if (
       !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
     ) {
-      return message.reply("You don't have permission to use this.");
+      return sendAdminResponse(message, "❌ You don't have permission to use this.");
     }
 
     const verifyButton = new ButtonBuilder()
@@ -706,7 +733,9 @@ client.on(Events.MessageCreate, async (message) => {
       components: [row],
     });
 
-    await message.reply('Verification panel created.');
+    // Delete command and confirm via DM
+    await message.delete().catch(() => {});
+    await message.author.send('✅ Verification panel created in #' + message.channel.name).catch(() => {});
   }
 
   // Command: !verified-list - Show all verified users (admin only)
@@ -714,13 +743,16 @@ client.on(Events.MessageCreate, async (message) => {
     if (
       !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
     ) {
-      return message.reply("You don't have permission to use this.");
+      return sendAdminResponse(message, "❌ You don't have permission to use this.");
     }
+
+    // Delete command message
+    await message.delete().catch(() => {});
 
     const verifiedUsers = getVerifiedUsers(message.guild.id);
     
     if (verifiedUsers.length === 0) {
-      return message.reply('No verified users yet.');
+      return message.author.send('📋 No verified users yet.').catch(() => {});
     }
 
     const embed = new EmbedBuilder()
@@ -741,7 +773,7 @@ client.on(Events.MessageCreate, async (message) => {
       embed.setFooter({ text: `Showing 25 of ${verifiedUsers.length} users` });
     }
 
-    await message.reply({ embeds: [embed] });
+    await message.author.send({ embeds: [embed] }).catch(() => {});
   }
 
   // Command: !verified-export - Export as CSV (admin only)
@@ -749,13 +781,16 @@ client.on(Events.MessageCreate, async (message) => {
     if (
       !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
     ) {
-      return message.reply("You don't have permission to use this.");
+      return sendAdminResponse(message, "❌ You don't have permission to use this.");
     }
+
+    // Delete command message
+    await message.delete().catch(() => {});
 
     const verifiedUsers = getVerifiedUsers(message.guild.id);
     
     if (verifiedUsers.length === 0) {
-      return message.reply('No verified users to export.');
+      return message.author.send('📋 No verified users to export.').catch(() => {});
     }
 
     const csv = 'Discord ID,Discord Tag,TikTok Username,Verified At\n' + 
@@ -765,13 +800,13 @@ client.on(Events.MessageCreate, async (message) => {
 
     const buffer = Buffer.from(csv, 'utf8');
     
-    await message.reply({
+    await message.author.send({
       content: `📊 Exported ${verifiedUsers.length} verified users:`,
       files: [{
         attachment: buffer,
         name: `verified-users-${message.guild.id}.csv`
       }]
-    });
+    }).catch(() => {});
   }
 
   // Command: !manual-verify @user @tiktokUsername - Manually verify a user (admin only)
@@ -779,26 +814,29 @@ client.on(Events.MessageCreate, async (message) => {
     if (
       !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
     ) {
-      return message.reply("You don't have permission to use this.");
+      return sendAdminResponse(message, "❌ You don't have permission to use this.");
     }
 
     const mentionedUser = message.mentions.users.first();
     const tiktokUsername = args[1]?.replace(/^@/, '') || args[0]?.replace(/^@/, '');
 
     if (!mentionedUser) {
-      return message.reply('Usage: `!manual-verify @DiscordUser @tiktokUsername`\n\nExample: `!manual-verify @Bea @penny.the.french.girl`');
+      return sendAdminResponse(message, 'Usage: `!manual-verify @DiscordUser @tiktokUsername`\n\nExample: `!manual-verify @Bea @penny.the.french.girl`');
     }
 
     if (!tiktokUsername || tiktokUsername.startsWith('<@')) {
-      return message.reply('Please provide a TikTok username.\n\nUsage: `!manual-verify @DiscordUser @tiktokUsername`');
+      return sendAdminResponse(message, 'Please provide a TikTok username.\n\nUsage: `!manual-verify @DiscordUser @tiktokUsername`');
     }
+
+    // Delete command message
+    await message.delete().catch(() => {});
 
     try {
       const member = await message.guild.members.fetch(mentionedUser.id);
       const role = message.guild.roles.cache.get(VERIFIED_ROLE_ID);
 
       if (!role) {
-        return message.reply('❌ Verified role not found. Check VERIFIED_ROLE_ID in your .env');
+        return message.author.send('❌ Verified role not found. Check VERIFIED_ROLE_ID in your .env').catch(() => {});
       }
 
       await member.roles.add(role);
@@ -811,10 +849,10 @@ client.on(Events.MessageCreate, async (message) => {
         tiktokUsername
       );
 
-      await message.reply(`✅ Manually verified **${mentionedUser.tag}** with TikTok **@${tiktokUsername}**\n\nThey now have the Verified role.`);
+      await message.author.send(`✅ Manually verified **${mentionedUser.tag}** with TikTok **@${tiktokUsername}**\n\nThey now have the Verified role.`).catch(() => {});
     } catch (err) {
       console.error('Manual verify error:', err);
-      await message.reply(`❌ Error: ${err.message}`);
+      await message.author.send(`❌ Error: ${err.message}`).catch(() => {});
     }
   }
 
@@ -823,10 +861,13 @@ client.on(Events.MessageCreate, async (message) => {
     if (
       !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
     ) {
-      return message.reply("You don't have permission to use this.");
+      return sendAdminResponse(message, "❌ You don't have permission to use this.");
     }
 
-    const statusMsg = await message.reply('🔍 Fetching pending verifications...');
+    // Delete command message and send via DM
+    await message.delete().catch(() => {});
+    const dmChannel = await message.author.createDM();
+    const statusMsg = await dmChannel.send('🔍 Fetching pending verifications...');
 
     // Get from in-memory Map and refresh from Redis
     const pendingList = [];
@@ -885,10 +926,13 @@ client.on(Events.MessageCreate, async (message) => {
     if (
       !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
     ) {
-      return message.reply("You don't have permission to use this.");
+      return sendAdminResponse(message, "❌ You don't have permission to use this.");
     }
 
-    const statusMsg = await message.reply('🧹 Analyzing pending verifications for cleanup...');
+    // Delete command message and send via DM
+    await message.delete().catch(() => {});
+    const dmChannel = await message.author.createDM();
+    const statusMsg = await dmChannel.send('🧹 Analyzing pending verifications for cleanup...');
 
     // Sync from Redis first
     if (redis) {
