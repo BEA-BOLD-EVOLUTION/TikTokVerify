@@ -268,6 +268,7 @@ async function generateCode(guild) {
 // TikTok bio fetcher - uses Android mobile Chrome user agent
 // Based on https://github.com/rxxv/TiktokAccountInfo approach
 // Extracts data from embedded JSON in page (more reliable than HTML parsing)
+// Returns: { bio: string|null, accountNotFound: boolean, emptyBio: boolean }
 async function fetchTikTokBio(username, attemptNum = 0) {
   const cleanUser = username.replace(/^@/, '').trim();
   
@@ -304,6 +305,19 @@ async function fetchTikTokBio(username, attemptNum = 0) {
 
     const html = await res.text();
     let bio = null;
+    let accountNotFound = false;
+    let emptyBio = false;
+
+    // Check for account not found (statusCode 10221)
+    try {
+      const statusMatch = html.match(/"webapp\.user-detail":\s*\{"statusCode":(\d+)/);
+      if (statusMatch && statusMatch[1] === '10221') {
+        console.log(`Attempt ${attemptNum + 1}: Account @${cleanUser} not found (statusCode 10221)`);
+        return { bio: null, accountNotFound: true, emptyBio: false };
+      }
+    } catch (e) {
+      // Ignore parse errors
+    }
 
     // Method 1: Try to extract from embedded JSON (most reliable)
     // TikTok embeds user data in a script tag as JSON
@@ -359,8 +373,14 @@ async function fetchTikTokBio(username, attemptNum = 0) {
     }
 
     if (!bio) {
+      // Check if account exists but has empty bio
+      const signatureMatch = html.match(/"signature":""/);
+      if (signatureMatch) {
+        console.log(`Attempt ${attemptNum + 1}: Account @${cleanUser} has empty bio`);
+        return { bio: '', accountNotFound: false, emptyBio: true };
+      }
       console.log(`Attempt ${attemptNum + 1}: Could not find bio for @${cleanUser}`);
-      return null;
+      return { bio: null, accountNotFound: false, emptyBio: false };
     }
 
     // Unescape unicode and special characters
@@ -371,25 +391,31 @@ async function fetchTikTokBio(username, attemptNum = 0) {
     bio = bio.replace(/\\n/g, '\n');
 
     console.log(`Attempt ${attemptNum + 1}: Fetched bio for @${cleanUser}: "${bio.substring(0, 80)}..."`);
-    return bio;
+    return { bio, accountNotFound: false, emptyBio: false };
   } catch (err) {
     console.error(`Attempt ${attemptNum + 1}: Error fetching TikTok profile:`, err.message);
-    return null;
+    return { bio: null, accountNotFound: false, emptyBio: false };
   }
 }
 
 // Retry function with progressive delays for mobile app sync issues
 // TikTok's mobile app can take 30-60 seconds to sync bio changes to web
 async function fetchTikTokBioWithRetry(username, maxRetries = 5) {
-  let lastBio = null;
+  let lastResult = { bio: null, accountNotFound: false, emptyBio: false };
   
   for (let i = 0; i < maxRetries; i++) {
-    const bio = await fetchTikTokBio(username, i);
+    const result = await fetchTikTokBio(username, i);
     
-    if (bio) {
-      lastBio = bio;
-      return bio;
+    // If account not found, return immediately
+    if (result.accountNotFound) {
+      return result;
     }
+    
+    if (result.bio) {
+      return result;
+    }
+    
+    lastResult = result;
     
     // Progressive delays: 2s, 3s, 4s, 5s between retries
     if (i < maxRetries - 1) {
@@ -399,7 +425,7 @@ async function fetchTikTokBioWithRetry(username, maxRetries = 5) {
     }
   }
   
-  return lastBio;
+  return lastResult;
 }
 
 // Health check - test that we can still read TikTok bios
@@ -407,11 +433,11 @@ async function runHealthCheck() {
   const testAccount = 'tiktok'; // Official TikTok account - always exists
   console.log(`[Health Check] Testing TikTok bio fetch for @${testAccount}...`);
   
-  const bio = await fetchTikTokBio(testAccount, 0);
+  const result = await fetchTikTokBio(testAccount, 0);
   
-  if (bio) {
-    console.log(`[Health Check] ✅ SUCCESS - Can read TikTok bios. Bio: "${bio.substring(0, 50)}..."`);
-    return { success: true, bio };
+  if (result.bio) {
+    console.log(`[Health Check] ✅ SUCCESS - Can read TikTok bios. Bio: "${result.bio.substring(0, 50)}..."`);
+    return { success: true, bio: result.bio };
   } else {
     console.error(`[Health Check] ❌ FAILED - Cannot read TikTok bios! TikTok may be blocking requests.`);
     return { success: false, bio: null };
@@ -468,14 +494,23 @@ async function runBackgroundVerificationCheck() {
     }
 
     try {
-      const bio = await fetchTikTokBio(record.username, 0);
+      const result = await fetchTikTokBio(record.username, 0);
       
-      if (!bio) {
-        console.log(`[Background Verify] ${discordId} (@${record.username}) - Could not fetch bio`);
+      if (result.accountNotFound) {
+        console.log(`[Background Verify] ${discordId} (@${record.username}) - Account not found, removing from pending`);
+        pendingVerifications.delete(discordId);
+        if (redis) {
+          await redisDeletePending(discordId);
+        }
+        continue;
+      }
+      
+      if (!result.bio) {
+        console.log(`[Background Verify] ${discordId} (@${record.username}) - Could not fetch bio${result.emptyBio ? ' (bio is empty)' : ''}`);
         continue;
       }
 
-      const bioUpper = bio.toUpperCase();
+      const bioUpper = result.bio.toUpperCase();
       const allCodes = [record.code, ...(record.previousCodes || [])];
       let matchedCode = null;
 
@@ -537,7 +572,7 @@ async function runBackgroundVerificationCheck() {
           console.error(`[Background Verify] Error verifying ${discordId}:`, verifyErr.message);
         }
       } else {
-        console.log(`[Background Verify] ${discordId} (@${record.username}) - No code match. Bio: "${bio.substring(0, 40)}..."`);
+        console.log(`[Background Verify] ${discordId} (@${record.username}) - No code match. Bio: "${result.bio.substring(0, 40)}..."`);
       }
 
       // Small delay between checks to avoid rate limiting
@@ -805,6 +840,101 @@ client.on(Events.MessageCreate, async (message) => {
 
     await statusMsg.edit(output);
   }
+
+  // Admin command: cleanup stale pending verifications
+  if (command.toLowerCase() === 'cleanup') {
+    if (
+      !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
+    ) {
+      return message.reply("You don't have permission to use this.");
+    }
+
+    const statusMsg = await message.reply('🧹 Analyzing pending verifications for cleanup...');
+
+    // Sync from Redis first
+    if (redis) {
+      try {
+        const keys = await redis.keys('pending:*');
+        for (const key of keys) {
+          const data = await redis.get(key);
+          if (data) {
+            const parsed = JSON.parse(data);
+            const discordId = key.replace('pending:', '');
+            if (!pendingVerifications.has(discordId)) {
+              pendingVerifications.set(discordId, parsed);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching from Redis:', err);
+      }
+    }
+
+    const toRemove = [];
+    const issues = [];
+    
+    for (const [discordId, record] of pendingVerifications) {
+      // Check for records without username
+      if (!record.username) {
+        toRemove.push({ discordId, reason: 'No username stored' });
+        continue;
+      }
+      
+      // Check if TikTok account exists
+      const result = await fetchTikTokBio(record.username, 0);
+      if (result.accountNotFound) {
+        toRemove.push({ discordId, username: record.username, reason: 'TikTok account not found' });
+      } else if (result.emptyBio) {
+        issues.push({ discordId, username: record.username, issue: 'Empty bio' });
+      } else if (!result.bio) {
+        issues.push({ discordId, username: record.username, issue: 'Could not fetch' });
+      }
+      
+      // Small delay to avoid rate limiting
+      await new Promise(r => setTimeout(r, 1000));
+    }
+
+    // Remove stale records
+    for (const item of toRemove) {
+      pendingVerifications.delete(item.discordId);
+      if (redis) {
+        await redisDeletePending(item.discordId);
+      }
+    }
+    if (!redis && toRemove.length > 0) {
+      savePendingVerifications();
+    }
+
+    // Build output
+    let output = '🧹 **Cleanup Complete**\n\n';
+    
+    if (toRemove.length > 0) {
+      output += `**Removed ${toRemove.length} stale records:**\n`;
+      for (const item of toRemove.slice(0, 10)) {
+        output += `• <@${item.discordId}>${item.username ? ` (@${item.username})` : ''} - ${item.reason}\n`;
+      }
+      if (toRemove.length > 10) {
+        output += `_...and ${toRemove.length - 10} more_\n`;
+      }
+      output += '\n';
+    } else {
+      output += '✅ No stale records to remove.\n\n';
+    }
+    
+    if (issues.length > 0) {
+      output += `**${issues.length} records with issues (kept):**\n`;
+      for (const item of issues.slice(0, 10)) {
+        output += `• <@${item.discordId}> (@${item.username}) - ${item.issue}\n`;
+      }
+      if (issues.length > 10) {
+        output += `_...and ${issues.length - 10} more_\n`;
+      }
+    }
+    
+    output += `\n**Remaining pending:** ${pendingVerifications.size}`;
+
+    await statusMsg.edit(output);
+  }
 });
 
 // Handle interactions (buttons + modals)
@@ -932,14 +1062,26 @@ client.on(Events.InteractionCreate, async (interaction) => {
         let verified = false;
         let lastBio = null;
         let foundCode = null;
+        let accountNotFound = false;
+        let emptyBio = false;
         
         try {
           for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-            const bio = await fetchTikTokBio(record.username, attempt);
+            const result = await fetchTikTokBio(record.username, attempt);
             
-            if (bio) {
-              lastBio = bio;
-              const bioUpper = bio.toUpperCase();
+            // If account not found, stop immediately
+            if (result.accountNotFound) {
+              accountNotFound = true;
+              break;
+            }
+            
+            if (result.emptyBio) {
+              emptyBio = true;
+            }
+            
+            if (result.bio) {
+              lastBio = result.bio;
+              const bioUpper = result.bio.toUpperCase();
               
               // Check current code AND previous codes (handles TikTok CDN lag)
               const allCodes = [record.code, ...(record.previousCodes || [])];
@@ -956,7 +1098,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 }
               }
               
-              console.log(`[VERIFY] User: ${interaction.user.tag} (${interaction.user.id}) | TikTok: @${record.username} | Quick check ${attempt}/${maxAttempts} - Bio: "${bio.substring(0, 50)}..." - Checking codes: ${allCodes.join(', ')} - Matched: ${matchedCode || 'none'}`);
+              console.log(`[VERIFY] User: ${interaction.user.tag} (${interaction.user.id}) | TikTok: @${record.username} | Quick check ${attempt}/${maxAttempts} - Bio: "${result.bio.substring(0, 50)}..." - Checking codes: ${allCodes.join(', ')} - Matched: ${matchedCode || 'none'}`);
               
               if (matchedCode) {
                 verified = true;
@@ -979,6 +1121,32 @@ client.on(Events.InteractionCreate, async (interaction) => {
           console.log(`[VERIFY] Expected code: ${record.code}`);
           console.log(`[VERIFY] Final bio: "${lastBio}"`);
           console.log(`[VERIFY] Verified: ${verified}`);
+          console.log(`[VERIFY] Account not found: ${accountNotFound}`);
+          
+          // Handle account not found
+          if (accountNotFound) {
+            console.log(`[VERIFY] FAILED - Account not found`);
+            // Remove from pending since the account doesn't exist
+            pendingVerifications.delete(interaction.user.id);
+            if (redis) {
+              await redisDeletePending(interaction.user.id);
+            } else {
+              savePendingVerifications();
+            }
+            await interaction.editReply(
+              `❌ **TikTok account not found!**\n\nThe username **@${record.username}** doesn't exist on TikTok.\n\n**Please check:**\n• Did you spell your username correctly?\n• Is your account banned or deleted?\n• Try visiting tiktok.com/@${record.username} in your browser\n\nPlease start the verification process again with the correct username.`,
+            );
+            return;
+          }
+          
+          // Handle empty bio
+          if (emptyBio && !lastBio) {
+            console.log(`[VERIFY] FAILED - Bio is empty`);
+            await interaction.editReply(
+              `❌ **Your TikTok bio is empty!**\n\nI found your account **@${record.username}**, but your bio is blank.\n\nPlease add this code to your TikTok bio:\n\`\`\`${record.code}\`\`\`\n\nThen click **"I Added the Code"** again.`,
+            );
+            return;
+          }
           
           if (!lastBio) {
             console.log(`[VERIFY] FAILED - No bio returned`);
