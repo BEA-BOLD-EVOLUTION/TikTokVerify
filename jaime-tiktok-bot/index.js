@@ -1246,7 +1246,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const validUsernameRegex = /^[a-zA-Z0-9_.]{2,24}$/;
         if (!username || username === 'undefined' || !validUsernameRegex.test(username)) {
           return interaction.reply({
-            content: `❌ **Invalid TikTok username format.**\n\nYou entered: \`${linkInput}\`\n\n**TikTok usernames must:**\n• Be 2-24 characters long\n• Only contain letters, numbers, underscores (_) or periods (.)\n\n**Accepted formats:**\n• \`@yourname\`\n• \`yourname\`\n• \`https://tiktok.com/@yourname\``,
+            content: `❌ **Invalid TikTok username format.**\n\nYou entered: \`${linkInput}\`\n\n**TikTok usernames must:**\n• Be 2-24 characters long\n• Only contain letters, numbers, underscores (_) or periods (.)\n• No spaces or emojis\n\n**Accepted formats:**\n• \`@yourname\`\n• \`yourname\`\n• \`https://tiktok.com/@yourname\``,
             ephemeral: true,
           });
         }
