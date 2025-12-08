@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2025 BEA
+Copyright (c) 2025 TPC Global LLC / Bold Evolution
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +19,24 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+BRANDING EXCEPTION
+
+The following are NOT covered by the MIT License above and may NOT be used, 
+copied, modified, or distributed without express written permission from 
+TPC Global LLC:
+
+1. The "Bold Evolution" name and any variations
+2. The "Bold Evolution Agency" (BEA) name and branding
+3. All logos, images, and visual assets in the /images folder
+4. The "TikTok Verification Bot" product name when used commercially
+5. Any trademarks, service marks, or trade dress owned by TPC Global LLC
+
+Self-hosters and derivative works MUST:
+- Use their own branding, logos, and product names
+- Remove all Bold Evolution branding before deployment
+- Not represent their deployment as affiliated with Bold Evolution or TPC Global LLC
+
+For branding inquiries or commercial licensing, contact TPC Global LLC.
