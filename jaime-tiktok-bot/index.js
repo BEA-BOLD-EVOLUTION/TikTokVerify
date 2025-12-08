@@ -869,20 +869,22 @@ client.on(Events.MessageCreate, async (message) => {
     // Delete command message and send via DM
     await message.delete().catch(() => {});
     const dmChannel = await message.author.createDM();
-    const statusMsg = await dmChannel.send('🔍 Fetching pending verifications...');
+    const statusMsg = await dmChannel.send('🔍 Fetching pending verifications for this server...');
 
+    const currentGuildId = message.guild.id;
+    
     // Get from in-memory Map and refresh from Redis
     const pendingList = [];
     
     // First, sync from Redis if available
     if (redis) {
       try {
-        const keys = await redis.keys('pending:*');
+        const keys = await redis.keys(`${REDIS_PREFIX}pending:*`);
         for (const key of keys) {
           const data = await redis.get(key);
           if (data) {
             const parsed = JSON.parse(data);
-            const discordId = key.replace('pending:', '');
+            const discordId = key.replace(`${REDIS_PREFIX}pending:`, '');
             if (!pendingVerifications.has(discordId)) {
               pendingVerifications.set(discordId, parsed);
             }
@@ -893,8 +895,10 @@ client.on(Events.MessageCreate, async (message) => {
       }
     }
 
-    // Build list from in-memory map
+    // Build list from in-memory map - FILTER BY CURRENT GUILD
     for (const [discordId, record] of pendingVerifications) {
+      if (record.guildId !== currentGuildId) continue; // Only show this guild's pending
+      
       pendingList.push({
         discordId,
         username: record.username,
@@ -905,11 +909,11 @@ client.on(Events.MessageCreate, async (message) => {
     }
 
     if (pendingList.length === 0) {
-      return statusMsg.edit('✅ No pending verifications.');
+      return statusMsg.edit('✅ No pending verifications for this server.');
     }
 
     // Format output
-    let output = `📋 **Pending Verifications:** ${pendingList.length}\n\n`;
+    let output = `📋 **Pending Verifications (${message.guild.name}):** ${pendingList.length}\n\n`;
     
     for (const p of pendingList.slice(0, 20)) {
       const allCodes = [p.code, ...p.previousCodes].slice(0, 3);
@@ -934,17 +938,19 @@ client.on(Events.MessageCreate, async (message) => {
     // Delete command message and send via DM
     await message.delete().catch(() => {});
     const dmChannel = await message.author.createDM();
-    const statusMsg = await dmChannel.send('🧹 Analyzing pending verifications for cleanup...');
+    const statusMsg = await dmChannel.send('🧹 Analyzing pending verifications for this server...');
+
+    const currentGuildId = message.guild.id;
 
     // Sync from Redis first
     if (redis) {
       try {
-        const keys = await redis.keys('pending:*');
+        const keys = await redis.keys(`${REDIS_PREFIX}pending:*`);
         for (const key of keys) {
           const data = await redis.get(key);
           if (data) {
             const parsed = JSON.parse(data);
-            const discordId = key.replace('pending:', '');
+            const discordId = key.replace(`${REDIS_PREFIX}pending:`, '');
             if (!pendingVerifications.has(discordId)) {
               pendingVerifications.set(discordId, parsed);
             }
@@ -959,6 +965,9 @@ client.on(Events.MessageCreate, async (message) => {
     const issues = [];
     
     for (const [discordId, record] of pendingVerifications) {
+      // Only process records for this guild
+      if (record.guildId !== currentGuildId) continue;
+      
       // Check for records without username (or username is literally "undefined")
       if (!record.username || record.username === 'undefined') {
         toRemove.push({ discordId, reason: 'No username stored' });
@@ -1016,7 +1025,12 @@ client.on(Events.MessageCreate, async (message) => {
       }
     }
     
-    output += `\n**Remaining pending:** ${pendingVerifications.size}`;
+    // Count remaining for this guild only
+    let guildPendingCount = 0;
+    for (const [, record] of pendingVerifications) {
+      if (record.guildId === currentGuildId) guildPendingCount++;
+    }
+    output += `\n**Remaining pending for ${message.guild.name}:** ${guildPendingCount}`;
 
     await statusMsg.edit(output);
   }
