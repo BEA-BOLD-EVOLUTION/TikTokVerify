@@ -29,7 +29,7 @@ const client = new Client({
 
 const PREFIX = process.env.BOT_PREFIX || '!';
 const VERIFIED_ROLE_ID = process.env.VERIFIED_ROLE_ID;
-const SKU_ID = process.env.SKU_ID; // Your subscription SKU ID from Discord Developer Portal
+const SKU_ID = process.env.SKU_ID || '1447694080107876593'; // Subscription SKU ID
 const BOT_OWNER_ID = process.env.BOT_OWNER_ID || '804762166854942790'; // BEA's Discord user ID
 const VERIFIED_USERS_FILE = path.join(__dirname, 'verified-users.json');
 const PENDING_VERIFICATIONS_FILE = path.join(__dirname, 'pending-verifications.json');
