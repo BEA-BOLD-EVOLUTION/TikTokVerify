@@ -488,7 +488,7 @@ async function runBackgroundVerificationCheck() {
   console.log(`[Background Verify] Checking ${pending.length} pending verifications...`);
 
   for (const [discordId, record] of pending) {
-    if (!record.username) {
+    if (!record.username || record.username === 'undefined') {
       console.log(`[Background Verify] Skipping ${discordId} - no username in record`);
       continue;
     }
@@ -874,8 +874,8 @@ client.on(Events.MessageCreate, async (message) => {
     const issues = [];
     
     for (const [discordId, record] of pendingVerifications) {
-      // Check for records without username
-      if (!record.username) {
+      // Check for records without username (or username is literally "undefined")
+      if (!record.username || record.username === 'undefined') {
         toRemove.push({ discordId, reason: 'No username stored' });
         continue;
       }
