@@ -1251,6 +1251,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
           .getTextInputValue('tiktok_link')
           .trim();
 
+        console.log(`[MODAL] New flow - User ${interaction.user.tag} (${interaction.user.id}) submitted: "${linkInput}"`);
+
         // Check for empty input
         if (!linkInput) {
           return interaction.reply({
@@ -1330,6 +1332,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const rawInput = interaction.fields
           .getTextInputValue('tiktok_username')
           .trim();
+
+        console.log(`[MODAL] Old flow - User ${interaction.user.tag} (${interaction.user.id}) submitted: "${rawInput}"`);
 
         // Validate input isn't empty
         if (!rawInput) {
