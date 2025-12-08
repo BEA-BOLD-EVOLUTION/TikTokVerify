@@ -1212,6 +1212,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
           .getTextInputValue('tiktok_link')
           .trim();
 
+        // Check for empty input
+        if (!linkInput) {
+          return interaction.reply({
+            content: '❌ **Please enter your TikTok username or profile link.**\n\nAccepted formats:\n• `@yourname`\n• `yourname`\n• `https://tiktok.com/@yourname`\n• `tiktok.com/@yourname`',
+            ephemeral: true,
+          });
+        }
+
         // Extract username from link or raw input
         let username = linkInput;
         
@@ -1232,6 +1240,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
         
         console.log(`[USERNAME PARSE] Input: "${linkInput}" -> Username: "${username}"`);
+
+        // Validate username format
+        // TikTok usernames: 2-24 characters, letters, numbers, underscores, periods only
+        const validUsernameRegex = /^[a-zA-Z0-9_.]{2,24}$/;
+        if (!username || username === 'undefined' || !validUsernameRegex.test(username)) {
+          return interaction.reply({
+            content: `❌ **Invalid TikTok username format.**\n\nYou entered: \`${linkInput}\`\n\n**TikTok usernames must:**\n• Be 2-24 characters long\n• Only contain letters, numbers, underscores (_) or periods (.)\n\n**Accepted formats:**\n• \`@yourname\`\n• \`yourname\`\n• \`https://tiktok.com/@yourname\``,
+            ephemeral: true,
+          });
+        }
 
         let record = pendingVerifications.get(interaction.user.id);
         if (!record && redis) {
