@@ -494,7 +494,46 @@ async function runBackgroundVerificationCheck() {
     }
 
     try {
-      const result = await fetchTikTokBio(record.username, 0);
+      // Try up to 10 times to fetch bio (different CDN servers may have different cache)
+      let result = null;
+      let lastBio = null;
+      const maxAttempts = 10;
+      
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        result = await fetchTikTokBio(record.username, attempt - 1);
+        
+        if (result.accountNotFound) {
+          break; // Account definitely doesn't exist
+        }
+        
+        if (result.bio) {
+          lastBio = result.bio;
+          
+          // Check if code is in bio
+          const bioUpper = result.bio.toUpperCase();
+          const allCodes = [record.code, ...(record.previousCodes || [])];
+          let foundCode = false;
+          
+          for (const code of allCodes) {
+            const codeUpper = code.toUpperCase();
+            const typoVariant = codeUpper.replace('JAIME', 'JAMIE');
+            
+            if (bioUpper.includes(codeUpper) || bioUpper.includes(typoVariant)) {
+              // Found it! No need to retry
+              console.log(`[Background Verify] Found code on attempt ${attempt}`);
+              foundCode = true;
+              break;
+            }
+          }
+          
+          if (foundCode) break; // Stop retrying, we found it
+        }
+        
+        // Wait 2 seconds before retry
+        if (attempt < maxAttempts) {
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
       
       if (result.accountNotFound) {
         console.log(`[Background Verify] ${discordId} (@${record.username}) - Account not found, removing from pending`);
@@ -505,12 +544,12 @@ async function runBackgroundVerificationCheck() {
         continue;
       }
       
-      if (!result.bio) {
-        console.log(`[Background Verify] ${discordId} (@${record.username}) - Could not fetch bio${result.emptyBio ? ' (bio is empty)' : ''}`);
+      if (!lastBio) {
+        console.log(`[Background Verify] ${discordId} (@${record.username}) - Could not fetch bio after ${maxAttempts} attempts${result.emptyBio ? ' (bio is empty)' : ''}`);
         continue;
       }
 
-      const bioUpper = result.bio.toUpperCase();
+      const bioUpper = lastBio.toUpperCase();
       const allCodes = [record.code, ...(record.previousCodes || [])];
       let matchedCode = null;
 
@@ -572,7 +611,7 @@ async function runBackgroundVerificationCheck() {
           console.error(`[Background Verify] Error verifying ${discordId}:`, verifyErr.message);
         }
       } else {
-        console.log(`[Background Verify] ${discordId} (@${record.username}) - No code match. Bio: "${result.bio.substring(0, 40)}..."`);
+        console.log(`[Background Verify] ${discordId} (@${record.username}) - No code match. Bio: "${lastBio.substring(0, 40)}..."`);
       }
 
       // Small delay between checks to avoid rate limiting
