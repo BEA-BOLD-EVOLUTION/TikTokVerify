@@ -63,6 +63,65 @@ const activeVerifications = new Set();
 // Cache for server prefixes: { guildId: prefix }
 const serverPrefixes = new Map();
 
+// Cache for guild entitlements: { guildId: { hasAccess: boolean, checkedAt: timestamp } }
+const entitlementCache = new Map();
+const ENTITLEMENT_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Check if a guild has an active subscription/entitlement
+async function checkGuildEntitlement(guildId) {
+  // Check cache first
+  const cached = entitlementCache.get(guildId);
+  if (cached && Date.now() - cached.checkedAt < ENTITLEMENT_CACHE_TTL) {
+    return cached.hasAccess;
+  }
+  
+  // If no SKU_ID configured, allow all (for self-hosters)
+  if (!SKU_ID) {
+    return true;
+  }
+  
+  try {
+    const response = await fetch(
+      `https://discord.com/api/v10/applications/${client.application.id}/entitlements?guild_id=${guildId}&sku_ids=${SKU_ID}&exclude_ended=true`,
+      {
+        headers: {
+          'Authorization': `Bot ${process.env.DISCORD_TOKEN}`,
+        },
+      }
+    );
+    
+    if (response.ok) {
+      const entitlements = await response.json();
+      const hasAccess = entitlements.length > 0;
+      
+      // Cache the result
+      entitlementCache.set(guildId, { hasAccess, checkedAt: Date.now() });
+      
+      return hasAccess;
+    } else {
+      console.error('[Entitlement] API error:', response.status);
+      // On API error, check cache even if expired, or default to false
+      return cached?.hasAccess || false;
+    }
+  } catch (err) {
+    console.error('[Entitlement] Check error:', err.message);
+    return cached?.hasAccess || false;
+  }
+}
+
+// Get the subscription message for non-subscribers
+function getSubscriptionMessage() {
+  return {
+    content: '🔒 **Subscription Required**\n\n' +
+      'This bot requires an active subscription to use.\n\n' +
+      '**Options:**\n' +
+      '• Subscribe for **$4.99/month** in the Discord App Library\n' +
+      '• Join the **Bold Evolution Agency** for free access\n\n' +
+      '👉 [Get the Bot](https://discord.com/discovery/applications/1446313791108419594)',
+    ephemeral: true,
+  };
+}
+
 // Redis helper functions
 async function redisSavePending(userId, data) {
   if (!redis) return false;
@@ -722,6 +781,18 @@ client.on(Events.MessageCreate, async (message) => {
       return sendAdminResponse(message, "❌ You don't have permission to use this.");
     }
 
+    // Check subscription/entitlement
+    const hasAccess = await checkGuildEntitlement(message.guild.id);
+    if (!hasAccess) {
+      return sendAdminResponse(message, 
+        '🔒 **Subscription Required**\n\n' +
+        'This bot requires an active subscription.\n\n' +
+        '• Subscribe for **$4.99/month** in the Discord App Library\n' +
+        '• Or join **Bold Evolution Agency** for free access\n\n' +
+        '👉 https://discord.com/discovery/applications/1446313791108419594'
+      );
+    }
+
     const verifyButton = new ButtonBuilder()
       .setCustomId('verify_tiktok_start')
       .setLabel('Verify TikTok')
@@ -1280,6 +1351,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // Button: start verification - generate code first
     if (interaction.isButton()) {
       if (interaction.customId === 'verify_tiktok_start') {
+        // Check subscription/entitlement first
+        const hasAccess = await checkGuildEntitlement(interaction.guild.id);
+        if (!hasAccess) {
+          return interaction.reply(getSubscriptionMessage());
+        }
+        
         // Check if user already has an active verification in progress
         if (activeVerifications.has(interaction.user.id)) {
           return interaction.reply({
