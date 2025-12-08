@@ -989,7 +989,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const row = new ActionRowBuilder().addComponents(continueButton);
 
         await interaction.reply({
-          content: `🔐 **Step 1: Add this code to your TikTok bio**\n\nYour unique verification code:\n\`\`\`\n${code}\n\`\`\`\n\n**⚠️ IMPORTANT:**\n• Your TikTok profile must be **PUBLIC** (not private)\n• The code must be at the **BEGINNING** of your bio\n• Copy the code exactly as shown (e.g., \`JAIME-12345\`)\n\n**Instructions:**\n1. Open TikTok and go to your profile\n2. Make sure your account is **public** (Settings → Privacy → Private Account = OFF)\n3. Tap "Edit profile"\n4. Paste the code at the **very beginning** of your bio\n5. Save your profile\n6. Wait 30-60 seconds, then click the button below\n\n⏳ You can remove the code after verification is complete.`,
+          content: `🔐 **Step 1: Add this code to your TikTok bio**\n\nYour unique verification code:\n\`\`\`\n${code}\n\`\`\`\n\n**⚠️ IMPORTANT:**\n• Your TikTok profile must be **PUBLIC** (not private)\n• The code must be at the **BEGINNING** of your bio\n• Copy the code exactly as shown (e.g., \`JAIME-12345\`)\n\n**Instructions:**\n1. Open TikTok and go to your profile\n2. Make sure your account is **public** (Settings → Privacy → Private Account = OFF)\n3. Tap "Edit profile"\n4. Paste the code at the **very beginning** of your bio\n5. Save your profile\n6. Click the button below\n\n⏳ **Verification may take up to 24 hours** due to TikTok's caching. You'll be notified via DM when verified!\n\n🗑️ You can remove the code after verification is complete.`,
           components: [row],
           ephemeral: true,
         });
@@ -1262,7 +1262,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const row = new ActionRowBuilder().addComponents(checkButton);
 
         await interaction.reply({
-          content: `📋 **Step 2: Verify your profile**\n\nTikTok username: **@${username}**\nVerification code: \`${record.code}\`\n\nMake sure the code is in your bio, then click **"Verify Now"**.\n\n📱 **Note:** When you update your bio on mobile, it can take **30-60+ seconds** for TikTok's web servers to reflect the change. Please wait before clicking Verify Now.`,
+          content: `📋 **Step 2: Verify your profile**\n\nTikTok username: **@${username}**\nVerification code: \`${record.code}\`\n\nMake sure the code is in your bio, then click **"Verify Now"**.\n\n⏳ **Verification may take up to 24 hours** due to TikTok's caching. If not verified immediately, I'll keep checking and **DM you** when it's done!`,
           components: [row],
           ephemeral: true,
         });
