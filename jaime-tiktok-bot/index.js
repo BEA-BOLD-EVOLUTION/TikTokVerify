@@ -67,13 +67,10 @@ const serverPrefixes = new Map();
 const entitlementCache = new Map();
 const ENTITLEMENT_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-// SELF_HOSTED mode - set to 'true' in env to disable subscription checks (for self-hosters only)
-const SELF_HOSTED = process.env.SELF_HOSTED === 'true';
-
 // Check if a guild has an active subscription/entitlement
 async function checkGuildEntitlement(guildId) {
-  // Self-hosted mode bypasses all checks
-  if (SELF_HOSTED) {
+  // If SKU_ID is not configured, skip subscription checks (self-hosted mode)
+  if (!SKU_ID) {
     return true;
   }
   
@@ -81,12 +78,6 @@ async function checkGuildEntitlement(guildId) {
   const cached = entitlementCache.get(guildId);
   if (cached && Date.now() - cached.checkedAt < ENTITLEMENT_CACHE_TTL) {
     return cached.hasAccess;
-  }
-  
-  // SKU_ID is required for managed hosting
-  if (!SKU_ID) {
-    console.error('[Entitlement] SKU_ID not configured! Denying access.');
-    return false;
   }
   
   try {
@@ -117,6 +108,7 @@ async function checkGuildEntitlement(guildId) {
     return cached?.hasAccess || false;
   }
 }
+
 
 // Get the subscription message for non-subscribers
 function getSubscriptionMessage() {
