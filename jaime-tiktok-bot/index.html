@@ -1016,7 +1016,6 @@
             <h3>📋 Table of Contents</h3>
             <ul style="columns: 2; column-gap: 40px;">
                 <li><a href="#" onclick="document.getElementById('section-overview').scrollIntoView({behavior: 'smooth'}); return false;">Overview</a></li>
-                <li><a href="#" onclick="document.getElementById('section-requirements').scrollIntoView({behavior: 'smooth'}); return false;">System Requirements</a></li>
                 <li><a href="#" onclick="document.getElementById('section-roles').scrollIntoView({behavior: 'smooth'}); return false;">Required Roles</a></li>
                 <li><a href="#" onclick="document.getElementById('section-role-order').scrollIntoView({behavior: 'smooth'}); return false;">Role Order</a></li>
                 <li><a href="#" onclick="document.getElementById('section-verify-channel').scrollIntoView({behavior: 'smooth'}); return false;">Create the Verify Channel</a></li>
@@ -1041,70 +1040,6 @@
             <li><code>@everyone</code> must have no visibility outside the verification channel</li>
         </ul>
         <p>Correct permissions are required for the system to function.</p>
-
-        <hr style="border: none; border-top: 1px solid var(--border); margin: 40px 0;">
-
-        <h2 id="section-requirements">🖥️ System Requirements</h2>
-        <p>To self-host this bot, you'll need:</p>
-
-        <div class="highlight-box">
-            <h3>☁️ Hosting Platform (choose one)</h3>
-            <table style="width: 100%; border-collapse: collapse; margin-top: 12px;">
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <td style="padding: 10px 0;"><strong><a href="https://railway.app" target="_blank" style="color: var(--accent);">Railway</a></strong> (Recommended)</td>
-                    <td style="padding: 10px 0;">Easy deployment, built-in Redis, free tier available</td>
-                </tr>
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <td style="padding: 10px 0;"><strong><a href="https://render.com" target="_blank" style="color: var(--accent);">Render</a></strong></td>
-                    <td style="padding: 10px 0;">Free tier, add Redis separately</td>
-                </tr>
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <td style="padding: 10px 0;"><strong><a href="https://fly.io" target="_blank" style="color: var(--accent);">Fly.io</a></strong></td>
-                    <td style="padding: 10px 0;">Global deployment, generous free tier</td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px 0;"><strong>VPS / Self-hosted</strong></td>
-                    <td style="padding: 10px 0;">DigitalOcean, Linode, AWS, or your own server</td>
-                </tr>
-            </table>
-        </div>
-
-        <div class="highlight-box">
-            <h3>🛠️ Technical Requirements</h3>
-            <ul>
-                <li><strong>Node.js 18+</strong> — Runtime environment</li>
-                <li><strong>Redis</strong> (optional but recommended) — Persistent storage for pending verifications across restarts</li>
-                <li><strong>Discord Bot Token</strong> — From the <a href="https://discord.com/developers/applications" target="_blank" style="color: var(--accent);">Discord Developer Portal</a></li>
-            </ul>
-        </div>
-
-        <div class="highlight-box">
-            <h3>🔐 Environment Variables</h3>
-            <p>Configure these in your hosting platform:</p>
-            <table style="width: 100%; border-collapse: collapse; margin-top: 12px;">
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <td style="padding: 8px 0;"><code>DISCORD_TOKEN</code></td>
-                    <td style="padding: 8px 0;">Your Discord bot token (required)</td>
-                </tr>
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <td style="padding: 8px 0;"><code>VERIFIED_ROLE_ID</code></td>
-                    <td style="padding: 8px 0;">ID of the Verified role to assign (required)</td>
-                </tr>
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <td style="padding: 8px 0;"><code>REDIS_URL</code></td>
-                    <td style="padding: 8px 0;">Redis connection string (optional, enables persistence)</td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px 0;"><code>PORT</code></td>
-                    <td style="padding: 8px 0;">Server port, default 3000 (optional)</td>
-                </tr>
-            </table>
-        </div>
-
-        <div class="warning-box">
-            <h3>⚠️ Without Redis</h3>
-            <p>If you don't set up Redis, pending verifications will be lost when the bot restarts. Users would need to start the verification process again. <strong>Redis is highly recommended for production use.</strong></p>
-        </div>
 
         <hr style="border: none; border-top: 1px solid var(--border); margin: 40px 0;">
 
