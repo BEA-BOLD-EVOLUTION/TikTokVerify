@@ -15,19 +15,19 @@ const {
   Events,
   PermissionsBitField,
   EmbedBuilder,
+  SlashCommandBuilder,
+  REST,
+  Routes,
 } = require('discord.js');
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMembers,
   ],
   partials: [Partials.Channel],
 });
 
-const PREFIX = process.env.BOT_PREFIX || '!';
 const VERIFIED_ROLE_ID = process.env.VERIFIED_ROLE_ID;
 const SKU_ID = process.env.SKU_ID; // Your subscription SKU ID (set in Railway, not in code)
 const BOT_OWNER_ID = process.env.BOT_OWNER_ID; // Bot owner's Discord user ID (set in Railway, not in code)
@@ -222,6 +222,38 @@ async function savePendingVerifications() {
     fs.writeFileSync(PENDING_VERIFICATIONS_FILE, JSON.stringify(obj, null, 2));
   } catch (err) {
     console.error('Error saving pending verifications to file:', err);
+  }
+}
+
+// Get all pending verifications as a Map (combines Redis and in-memory)
+async function getAllPendingVerifications() {
+  const result = new Map();
+  
+  // First, get from Redis if available
+  if (redis) {
+    const redisData = await redisGetAllPending();
+    for (const [userId, data] of Object.entries(redisData)) {
+      result.set(userId, data);
+    }
+  }
+  
+  // Also check in-memory cache
+  for (const [userId, data] of pendingVerifications.entries()) {
+    if (!result.has(userId)) {
+      result.set(userId, data);
+    }
+  }
+  
+  return result;
+}
+
+// Remove a pending verification
+async function removePendingVerification(discordId) {
+  pendingVerifications.delete(discordId);
+  if (redis) {
+    await redisDeletePending(discordId);
+  } else {
+    savePendingVerifications();
   }
 }
 
@@ -707,764 +739,81 @@ function startBackgroundVerificationScheduler() {
 // Load pending verifications from file before connecting
 loadPendingVerifications();
 
+// Slash command definitions
+const slashCommands = [
+  new SlashCommandBuilder()
+    .setName('setup-verify')
+    .setDescription('Create the TikTok verification panel in this channel'),
+  new SlashCommandBuilder()
+    .setName('verified-list')
+    .setDescription('Show all verified users in this server'),
+  new SlashCommandBuilder()
+    .setName('verified-export')
+    .setDescription('Export verified users as CSV'),
+  new SlashCommandBuilder()
+    .setName('manual-verify')
+    .setDescription('Manually verify a user')
+    .addUserOption(option => option.setName('user').setDescription('Discord user to verify').setRequired(true))
+    .addStringOption(option => option.setName('tiktok').setDescription('TikTok username').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('pending')
+    .setDescription('Show all pending verifications'),
+  new SlashCommandBuilder()
+    .setName('cleanup')
+    .setDescription('Remove stale pending verifications'),
+  new SlashCommandBuilder()
+    .setName('check-tiktok')
+    .setDescription('Check if a TikTok account exists')
+    .addStringOption(option => option.setName('username').setDescription('TikTok username').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('unverify')
+    .setDescription('Remove verification from a user')
+    .addUserOption(option => option.setName('user').setDescription('User to unverify').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('test-tiktok')
+    .setDescription('Test if bot can read TikTok bios')
+    .addStringOption(option => option.setName('username').setDescription('TikTok username to test').setRequired(false)),
+  new SlashCommandBuilder()
+    .setName('grant-premium')
+    .setDescription('Grant premium access to a guild (owner only)')
+    .addStringOption(option => option.setName('guild_id').setDescription('Guild ID').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('revoke-premium')
+    .setDescription('Revoke premium access from a guild (owner only)')
+    .addStringOption(option => option.setName('guild_id').setDescription('Guild ID').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('premium-list')
+    .setDescription('List all guilds with premium access (owner only)'),
+  new SlashCommandBuilder()
+    .setName('check-premium')
+    .setDescription('Check premium status of a guild (owner only)')
+    .addStringOption(option => option.setName('guild_id').setDescription('Guild ID (defaults to current)').setRequired(false)),
+];
+
 // When bot is ready
-client.once(Events.ClientReady, (c) => {
+client.once(Events.ClientReady, async (c) => {
   console.log(`Logged in as ${c.user.tag}`);
+  
+  // Register slash commands globally
+  try {
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+    console.log('[Slash] Registering slash commands...');
+    
+    await rest.put(
+      Routes.applicationCommands(c.user.id),
+      { body: slashCommands.map(cmd => cmd.toJSON()) }
+    );
+    
+    console.log('[Slash] Successfully registered slash commands');
+  } catch (err) {
+    console.error('[Slash] Error registering commands:', err);
+  }
   
   // Start health check scheduler
   startHealthCheckScheduler();
   
   // Start background verification scheduler
   startBackgroundVerificationScheduler();
-});
-
-// Simple text command: !setup-verify
-// Helper to send admin response privately via DM and delete command
-async function sendAdminResponse(message, content, options = {}) {
-  try {
-    // Delete the command message to hide it from the channel
-    await message.delete().catch(() => {});
-    
-    // Send response via DM
-    if (typeof content === 'string') {
-      await message.author.send({ content, ...options });
-    } else {
-      await message.author.send(content);
-    }
-  } catch (err) {
-    // If DM fails, send ephemeral-like response (auto-delete after 10s)
-    try {
-      const reply = await message.channel.send(typeof content === 'string' ? content : { ...content });
-      setTimeout(() => reply.delete().catch(() => {}), 10000);
-    } catch {
-      console.error('Could not send admin response:', err);
-    }
-  }
-}
-
-// This lets you (admin) create the panel in a channel
-client.on(Events.MessageCreate, async (message) => {
-  // Debug logging
-  console.log(`[Message] Author: ${message.author.tag}, Content: "${message.content}", Bot: ${message.author.bot}`);
-  
-  if (message.author.bot) return;
-  if (!message.content.startsWith(PREFIX)) {
-    console.log(`[Message] Ignored - doesn't start with prefix "${PREFIX}"`);
-    return;
-  }
-
-  console.log(`[Command] Processing: ${message.content}`);
-  const [command, ...args] = message.content.slice(PREFIX.length).trim().split(/\s+/);
-
-  // Command: !test-tiktok [@username] - Test if bot can read TikTok bios (admin only)
-  if (command.toLowerCase() === 'test-tiktok') {
-    if (
-      !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
-    ) {
-      return sendAdminResponse(message, "❌ You don't have permission to use this.");
-    }
-
-    const testUser = args[0] ? args[0].replace(/^@/, '') : 'tiktok';
-    
-    // Delete command and send "working" DM
-    await message.delete().catch(() => {});
-    const dmChannel = await message.author.createDM();
-    const statusMsg = await dmChannel.send(`🔍 Testing TikTok bio fetch for **@${testUser}**...`);
-    
-    const bio = await fetchTikTokBio(testUser, 0);
-    
-    if (bio) {
-      await statusMsg.edit(`✅ **Success!** Can read TikTok bios.\n\n**@${testUser}'s bio:**\n> ${bio.substring(0, 200)}${bio.length > 200 ? '...' : ''}`);
-    } else {
-      await statusMsg.edit(`❌ **Failed!** Cannot read TikTok bio for @${testUser}.\n\nPossible issues:\n• TikTok may be blocking requests\n• The profile may be private\n• The username may not exist`);
-    }
-    return;
-  }
-
-  if (command.toLowerCase() === 'setup-verify') {
-    // Only allow admins to run this
-    if (
-      !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
-    ) {
-      return sendAdminResponse(message, "❌ You don't have permission to use this.");
-    }
-
-    // Check subscription/entitlement
-    const hasAccess = await checkGuildEntitlement(message.guild.id);
-    if (!hasAccess) {
-      return sendAdminResponse(message, 
-        '🔒 **Subscription Required**\n\n' +
-        'This bot requires an active subscription.\n\n' +
-        '• Subscribe for **$4.99/month** in the Discord App Library\n' +
-        '• Or join **Bold Evolution Agency** for free access\n\n' +
-        '👉 https://discord.com/discovery/applications/1446313791108419594'
-      );
-    }
-
-    const verifyButton = new ButtonBuilder()
-      .setCustomId('verify_tiktok_start')
-      .setLabel('Verify TikTok')
-      .setStyle(ButtonStyle.Primary);
-
-    const row = new ActionRowBuilder().addComponents(verifyButton);
-
-    await message.channel.send({
-      content:
-        '👋 **TikTok Verification**\n\nVerify your TikTok account to link your identity across platforms.\n\n**Before you start:**\n• Your TikTok profile must be **PUBLIC** (not private)\n• You\'ll receive a code like `JAIME-12345`\n• Add the code to the **BEGINNING** of your TikTok bio\n• Wait 30-60 seconds after saving before verifying\n\nOnce verified, you\'ll receive the **Verified Viewer** role.\n\n💀 Click below to begin:',
-      components: [row],
-    });
-
-    // Delete command and confirm via DM
-    await message.delete().catch(() => {});
-    await message.author.send('✅ Verification panel created in #' + message.channel.name).catch(() => {});
-  }
-
-  // Command: !verified-list - Show all verified users (admin only)
-  if (command.toLowerCase() === 'verified-list') {
-    if (
-      !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
-    ) {
-      return sendAdminResponse(message, "❌ You don't have permission to use this.");
-    }
-
-    // Delete command message
-    await message.delete().catch(() => {});
-
-    const verifiedUsers = getVerifiedUsers(message.guild.id);
-    
-    if (verifiedUsers.length === 0) {
-      return message.author.send('📋 No verified users yet.').catch(() => {});
-    }
-
-    const embed = new EmbedBuilder()
-      .setTitle('✅ Verified Users')
-      .setColor(0x43b581)
-      .setDescription(`Total: **${verifiedUsers.length}** verified users`)
-      .setTimestamp();
-
-    // Add users to embed (max 25 fields)
-    const usersToShow = verifiedUsers.slice(0, 25);
-    const userList = usersToShow.map((u, i) => 
-      `**${i + 1}.** <@${u.discordId}> → [@${u.tiktokUsername}](https://tiktok.com/@${u.tiktokUsername})`
-    ).join('\n');
-
-    embed.addFields({ name: 'Linked Accounts', value: userList || 'None' });
-
-    if (verifiedUsers.length > 25) {
-      embed.setFooter({ text: `Showing 25 of ${verifiedUsers.length} users` });
-    }
-
-    await message.author.send({ embeds: [embed] }).catch(() => {});
-  }
-
-  // Command: !verified-export - Export as CSV (admin only)
-  if (command.toLowerCase() === 'verified-export') {
-    if (
-      !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
-    ) {
-      return sendAdminResponse(message, "❌ You don't have permission to use this.");
-    }
-
-    // Delete command message
-    await message.delete().catch(() => {});
-
-    const verifiedUsers = getVerifiedUsers(message.guild.id);
-    
-    if (verifiedUsers.length === 0) {
-      return message.author.send('📋 No verified users to export.').catch(() => {});
-    }
-
-    const csv = 'Discord ID,Discord Tag,TikTok Username,Verified At\n' + 
-      verifiedUsers.map(u => 
-        `${u.discordId},${u.discordTag},@${u.tiktokUsername},${u.verifiedAt}`
-      ).join('\n');
-
-    const buffer = Buffer.from(csv, 'utf8');
-    
-    await message.author.send({
-      content: `📊 Exported ${verifiedUsers.length} verified users:`,
-      files: [{
-        attachment: buffer,
-        name: `verified-users-${message.guild.id}.csv`
-      }]
-    }).catch(() => {});
-  }
-
-  // Command: !manual-verify @user @tiktokUsername - Manually verify a user (admin only)
-  if (command.toLowerCase() === 'manual-verify') {
-    if (
-      !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
-    ) {
-      return sendAdminResponse(message, "❌ You don't have permission to use this.");
-    }
-
-    const mentionedUser = message.mentions.users.first();
-    const tiktokUsername = args[1]?.replace(/^@/, '') || args[0]?.replace(/^@/, '');
-
-    if (!mentionedUser) {
-      return sendAdminResponse(message, 'Usage: `!manual-verify @DiscordUser @tiktokUsername`\n\nExample: `!manual-verify @Bea @penny.the.french.girl`');
-    }
-
-    if (!tiktokUsername || tiktokUsername.startsWith('<@')) {
-      return sendAdminResponse(message, 'Please provide a TikTok username.\n\nUsage: `!manual-verify @DiscordUser @tiktokUsername`');
-    }
-
-    // Delete command message
-    await message.delete().catch(() => {});
-
-    try {
-      const member = await message.guild.members.fetch(mentionedUser.id);
-      const role = message.guild.roles.cache.get(VERIFIED_ROLE_ID);
-
-      if (!role) {
-        return message.author.send('❌ Verified role not found. Check VERIFIED_ROLE_ID in your .env').catch(() => {});
-      }
-
-      await member.roles.add(role);
-
-      // Save to verified users list
-      addVerifiedUser(
-        message.guild.id,
-        mentionedUser.id,
-        mentionedUser.tag,
-        tiktokUsername
-      );
-
-      await message.author.send(`✅ Manually verified **${mentionedUser.tag}** with TikTok **@${tiktokUsername}**\n\nThey now have the Verified role.`).catch(() => {});
-    } catch (err) {
-      console.error('Manual verify error:', err);
-      await message.author.send(`❌ Error: ${err.message}`).catch(() => {});
-    }
-  }
-
-  // Command: !pending - Show all pending verifications (admin only)
-  if (command.toLowerCase() === 'pending') {
-    if (
-      !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
-    ) {
-      return sendAdminResponse(message, "❌ You don't have permission to use this.");
-    }
-
-    // Delete command message and send via DM
-    await message.delete().catch(() => {});
-    const dmChannel = await message.author.createDM();
-    const statusMsg = await dmChannel.send('🔍 Fetching pending verifications for this server...');
-
-    const currentGuildId = message.guild.id;
-    
-    // Get from in-memory Map and refresh from Redis
-    const pendingList = [];
-    
-    // First, sync from Redis if available
-    if (redis) {
-      try {
-        const keys = await redis.keys(`${REDIS_PREFIX}pending:*`);
-        for (const key of keys) {
-          const data = await redis.get(key);
-          if (data) {
-            const parsed = JSON.parse(data);
-            const discordId = key.replace(`${REDIS_PREFIX}pending:`, '');
-            if (!pendingVerifications.has(discordId)) {
-              pendingVerifications.set(discordId, parsed);
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Error fetching from Redis:', err);
-      }
-    }
-
-    // Build list from in-memory map - FILTER BY CURRENT GUILD
-    for (const [discordId, record] of pendingVerifications) {
-      if (record.guildId !== currentGuildId) continue; // Only show this guild's pending
-      
-      pendingList.push({
-        discordId,
-        username: record.username,
-        code: record.code,
-        previousCodes: record.previousCodes || [],
-        createdAt: record.createdAt
-      });
-    }
-
-    if (pendingList.length === 0) {
-      return statusMsg.edit('✅ No pending verifications for this server.');
-    }
-
-    // Format output
-    let output = `📋 **Pending Verifications (${message.guild.name}):** ${pendingList.length}\n\n`;
-    
-    for (const p of pendingList.slice(0, 20)) {
-      const allCodes = [p.code, ...p.previousCodes].slice(0, 3);
-      output += `• <@${p.discordId}> → **@${p.username}** | Codes: ${allCodes.map(c => '`' + c + '`').join(', ')}\n`;
-    }
-
-    if (pendingList.length > 20) {
-      output += `\n_...and ${pendingList.length - 20} more_`;
-    }
-
-    await statusMsg.edit(output);
-  }
-
-  // Admin command: cleanup stale pending verifications
-  if (command.toLowerCase() === 'cleanup') {
-    if (
-      !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
-    ) {
-      return sendAdminResponse(message, "❌ You don't have permission to use this.");
-    }
-
-    // Delete command message and send via DM
-    await message.delete().catch(() => {});
-    const dmChannel = await message.author.createDM();
-    const statusMsg = await dmChannel.send('🧹 Analyzing pending verifications for this server...');
-
-    const currentGuildId = message.guild.id;
-
-    // Sync from Redis first
-    if (redis) {
-      try {
-        const keys = await redis.keys(`${REDIS_PREFIX}pending:*`);
-        for (const key of keys) {
-          const data = await redis.get(key);
-          if (data) {
-            const parsed = JSON.parse(data);
-            const discordId = key.replace(`${REDIS_PREFIX}pending:`, '');
-            if (!pendingVerifications.has(discordId)) {
-              pendingVerifications.set(discordId, parsed);
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Error fetching from Redis:', err);
-      }
-    }
-
-    const toRemove = [];
-    const issues = [];
-    
-    for (const [discordId, record] of pendingVerifications) {
-      // Only process records for this guild
-      if (record.guildId !== currentGuildId) continue;
-      
-      // Check for records without username (or username is literally "undefined")
-      if (!record.username || record.username === 'undefined') {
-        toRemove.push({ discordId, reason: 'No username stored' });
-        continue;
-      }
-      
-      // Check if TikTok account exists
-      const result = await fetchTikTokBio(record.username, 0);
-      if (result.accountNotFound) {
-        toRemove.push({ discordId, username: record.username, reason: 'TikTok account not found' });
-      } else if (result.emptyBio) {
-        issues.push({ discordId, username: record.username, issue: 'Empty bio' });
-      } else if (!result.bio) {
-        issues.push({ discordId, username: record.username, issue: 'Could not fetch' });
-      }
-      
-      // Small delay to avoid rate limiting
-      await new Promise(r => setTimeout(r, 1000));
-    }
-
-    // Remove stale records
-    for (const item of toRemove) {
-      pendingVerifications.delete(item.discordId);
-      if (redis) {
-        await redisDeletePending(item.discordId);
-      }
-    }
-    if (!redis && toRemove.length > 0) {
-      savePendingVerifications();
-    }
-
-    // Build output
-    let output = '🧹 **Cleanup Complete**\n\n';
-    
-    if (toRemove.length > 0) {
-      output += `**Removed ${toRemove.length} stale records:**\n`;
-      for (const item of toRemove.slice(0, 10)) {
-        output += `• <@${item.discordId}>${item.username ? ` (@${item.username})` : ''} - ${item.reason}\n`;
-      }
-      if (toRemove.length > 10) {
-        output += `_...and ${toRemove.length - 10} more_\n`;
-      }
-      output += '\n';
-    } else {
-      output += '✅ No stale records to remove.\n\n';
-    }
-    
-    if (issues.length > 0) {
-      output += `**${issues.length} records with issues (kept):**\n`;
-      for (const item of issues.slice(0, 10)) {
-        output += `• <@${item.discordId}> (@${item.username}) - ${item.issue}\n`;
-      }
-      if (issues.length > 10) {
-        output += `_...and ${issues.length - 10} more_\n`;
-      }
-    }
-    
-    // Count remaining for this guild only
-    let guildPendingCount = 0;
-    for (const [, record] of pendingVerifications) {
-      if (record.guildId === currentGuildId) guildPendingCount++;
-    }
-    output += `\n**Remaining pending for ${message.guild.name}:** ${guildPendingCount}`;
-
-    await statusMsg.edit(output);
-  }
-
-  // Command: !check-tiktok @username - Check if a TikTok account exists (admin only)
-  if (command.toLowerCase() === 'check-tiktok') {
-    if (
-      !message.member.permissions.has(PermissionsBitField.Flags.ManageRoles)
-    ) {
-      return sendAdminResponse(message, "❌ You need **Manage Roles** permission to use this.");
-    }
-
-    let tiktokUsername = args[0];
-    if (!tiktokUsername) {
-      return sendAdminResponse(message, '❌ Usage: `!check-tiktok @username`\n\nExample: `!check-tiktok @penny.the.french.girl`');
-    }
-
-    // Remove @ if included
-    tiktokUsername = tiktokUsername.replace(/^@/, '');
-
-    // Delete command message and send via DM
-    await message.delete().catch(() => {});
-    const dmChannel = await message.author.createDM();
-    const statusMsg = await dmChannel.send(`🔍 Checking TikTok account **@${tiktokUsername}**...`);
-
-    try {
-      const result = await fetchTikTokBio(tiktokUsername, 0);
-      
-      if (result.accountNotFound) {
-        return statusMsg.edit(`❌ **Account Not Found**\n\nThe TikTok account **@${tiktokUsername}** does not exist or is private.`);
-      }
-
-      let output = `✅ **TikTok Account Found**\n\n`;
-      output += `**Username:** @${tiktokUsername}\n`;
-      output += `**Profile:** https://www.tiktok.com/@${tiktokUsername}\n\n`;
-      
-      if (result.bio) {
-        output += `**Bio:**\n\`\`\`\n${result.bio}\n\`\`\``;
-      } else if (result.emptyBio) {
-        output += `**Bio:** _(empty)_`;
-      } else {
-        output += `**Bio:** _(could not fetch)_`;
-      }
-
-      await statusMsg.edit(output);
-    } catch (err) {
-      console.error('Error checking TikTok:', err);
-      await statusMsg.edit(`❌ Error checking TikTok account: ${err.message}`);
-    }
-  }
-
-  // Command: !unverify @user - Remove verification from a user (admin only)
-  if (command.toLowerCase() === 'unverify') {
-    if (
-      !message.member.permissions.has(PermissionsBitField.Flags.ManageRoles)
-    ) {
-      return sendAdminResponse(message, "❌ You need **Manage Roles** permission to use this.");
-    }
-
-    const targetUser = message.mentions.users.first();
-    if (!targetUser) {
-      return sendAdminResponse(message, '❌ Usage: `!unverify @user`\n\nExample: `!unverify @SomeUser`');
-    }
-
-    // Delete command message and send via DM
-    await message.delete().catch(() => {});
-    const dmChannel = await message.author.createDM();
-    const statusMsg = await dmChannel.send(`🔍 Removing verification for <@${targetUser.id}>...`);
-
-    try {
-      const guildId = message.guild.id;
-      const member = await message.guild.members.fetch(targetUser.id).catch(() => null);
-      
-      // Remove from verified records
-      const verifiedKey = `verified:${guildId}`;
-      let wasVerified = false;
-      let tiktokUsername = null;
-
-      if (redis) {
-        const existing = await redis.hget(`${REDIS_PREFIX}${verifiedKey}`, targetUser.id);
-        if (existing) {
-          const parsed = JSON.parse(existing);
-          tiktokUsername = parsed.tiktokUsername;
-          await redis.hdel(`${REDIS_PREFIX}${verifiedKey}`, targetUser.id);
-          wasVerified = true;
-        }
-      } else {
-        const verifiedUsers = verifiedUsersCache.get(guildId) || {};
-        if (verifiedUsers[targetUser.id]) {
-          tiktokUsername = verifiedUsers[targetUser.id].tiktokUsername;
-          delete verifiedUsers[targetUser.id];
-          verifiedUsersCache.set(guildId, verifiedUsers);
-          saveVerifiedUsers(guildId);
-          wasVerified = true;
-        }
-      }
-
-      // Remove the verified role if member is in the server
-      let roleRemoved = false;
-      if (member && VERIFIED_ROLE_ID) {
-        const role = message.guild.roles.cache.get(VERIFIED_ROLE_ID);
-        if (role && member.roles.cache.has(VERIFIED_ROLE_ID)) {
-          await member.roles.remove(role);
-          roleRemoved = true;
-        }
-      }
-
-      if (wasVerified || roleRemoved) {
-        let output = `✅ **Verification Removed**\n\n`;
-        output += `**User:** <@${targetUser.id}>\n`;
-        if (tiktokUsername) {
-          output += `**Was verified as:** @${tiktokUsername}\n`;
-        }
-        if (roleRemoved) {
-          output += `**Role removed:** ✅\n`;
-        } else if (member) {
-          output += `**Role:** User didn't have the verified role\n`;
-        } else {
-          output += `**Role:** User not in server\n`;
-        }
-        if (wasVerified) {
-          output += `**Record deleted:** ✅`;
-        }
-        await statusMsg.edit(output);
-      } else {
-        await statusMsg.edit(`❌ <@${targetUser.id}> is not verified in this server.`);
-      }
-    } catch (err) {
-      console.error('Error unverifying user:', err);
-      await statusMsg.edit(`❌ Error removing verification: ${err.message}`);
-    }
-  }
-
-  // ========== BOT OWNER COMMANDS (Premium Management) ==========
-  
-  // Owner command: Grant free premium to a guild
-  if (command.toLowerCase() === 'grant-premium') {
-    if (message.author.id !== BOT_OWNER_ID) {
-      return; // Silently ignore for non-owners
-    }
-    
-    const guildId = args[0];
-    if (!guildId) {
-      return sendAdminResponse(message, '❌ Usage: `!grant-premium <guild_id>`\n\nExample: `!grant-premium 123456789012345678`');
-    }
-    
-    if (!SKU_ID) {
-      return sendAdminResponse(message, '❌ SKU_ID not configured. Add SKU_ID to your environment variables.');
-    }
-    
-    try {
-      // Delete command for privacy
-      await message.delete().catch(() => {});
-      
-      const dmChannel = await message.author.createDM();
-      const statusMsg = await dmChannel.send(`⏳ Granting premium to guild ${guildId}...`);
-      
-      // Create test entitlement via Discord API
-      const response = await fetch(`https://discord.com/api/v10/applications/${client.application.id}/entitlements`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bot ${process.env.DISCORD_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          sku_id: SKU_ID,
-          owner_id: guildId,
-          owner_type: 1, // 1 = guild subscription
-        }),
-      });
-      
-      if (response.ok) {
-        const entitlement = await response.json();
-        await statusMsg.edit(`✅ **Premium granted!**\n\n• Guild ID: \`${guildId}\`\n• Entitlement ID: \`${entitlement.id}\`\n• Type: Guild Subscription (Free)\n\n_The guild now has premium access. They may need to reload Discord._`);
-      } else {
-        const error = await response.json();
-        await statusMsg.edit(`❌ **Failed to grant premium**\n\n\`\`\`json\n${JSON.stringify(error, null, 2)}\n\`\`\``);
-      }
-    } catch (err) {
-      console.error('[Premium] Error granting:', err);
-      try {
-        const dmChannel = await message.author.createDM();
-        await dmChannel.send(`❌ Error granting premium: ${err.message}`);
-      } catch {}
-    }
-  }
-  
-  // Owner command: Revoke premium from a guild (delete entitlement)
-  if (command.toLowerCase() === 'revoke-premium') {
-    if (message.author.id !== BOT_OWNER_ID) {
-      return; // Silently ignore for non-owners
-    }
-    
-    const entitlementId = args[0];
-    if (!entitlementId) {
-      return sendAdminResponse(message, '❌ Usage: `!revoke-premium <entitlement_id>`\n\nUse `!premium-list` to find entitlement IDs.');
-    }
-    
-    try {
-      // Delete command for privacy
-      await message.delete().catch(() => {});
-      
-      const dmChannel = await message.author.createDM();
-      const statusMsg = await dmChannel.send(`⏳ Revoking entitlement ${entitlementId}...`);
-      
-      // Delete entitlement via Discord API
-      const response = await fetch(`https://discord.com/api/v10/applications/${client.application.id}/entitlements/${entitlementId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bot ${process.env.DISCORD_TOKEN}`,
-        },
-      });
-      
-      if (response.ok || response.status === 204) {
-        await statusMsg.edit(`✅ **Premium revoked!**\n\n• Entitlement ID: \`${entitlementId}\`\n\n_The entitlement has been deleted._`);
-      } else {
-        const error = await response.json().catch(() => ({ message: 'Unknown error' }));
-        await statusMsg.edit(`❌ **Failed to revoke premium**\n\n\`\`\`json\n${JSON.stringify(error, null, 2)}\n\`\`\``);
-      }
-    } catch (err) {
-      console.error('[Premium] Error revoking:', err);
-      try {
-        const dmChannel = await message.author.createDM();
-        await dmChannel.send(`❌ Error revoking premium: ${err.message}`);
-      } catch {}
-    }
-  }
-  
-  // Owner command: List all entitlements (premium subscriptions)
-  if (command.toLowerCase() === 'premium-list') {
-    if (message.author.id !== BOT_OWNER_ID) {
-      return; // Silently ignore for non-owners
-    }
-    
-    try {
-      // Delete command for privacy
-      await message.delete().catch(() => {});
-      
-      const dmChannel = await message.author.createDM();
-      const statusMsg = await dmChannel.send('⏳ Fetching entitlements...');
-      
-      // List entitlements via Discord API
-      const response = await fetch(`https://discord.com/api/v10/applications/${client.application.id}/entitlements?limit=100&exclude_ended=true`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bot ${process.env.DISCORD_TOKEN}`,
-        },
-      });
-      
-      if (response.ok) {
-        const entitlements = await response.json();
-        
-        if (entitlements.length === 0) {
-          await statusMsg.edit('📋 **No active entitlements found.**\n\nUse `!grant-premium <guild_id>` to grant free premium access.');
-          return;
-        }
-        
-        let output = `📋 **Active Entitlements:** ${entitlements.length}\n\n`;
-        
-        // Group by type
-        const guildSubs = entitlements.filter(e => e.guild_id);
-        const userSubs = entitlements.filter(e => e.user_id && !e.guild_id);
-        
-        if (guildSubs.length > 0) {
-          output += '**Guild Subscriptions:**\n';
-          for (const e of guildSubs.slice(0, 15)) {
-            const typeLabel = getEntitlementTypeLabel(e.type);
-            const guildName = client.guilds.cache.get(e.guild_id)?.name || 'Unknown';
-            output += `• \`${e.id}\` - ${guildName} (\`${e.guild_id}\`) - ${typeLabel}\n`;
-          }
-          if (guildSubs.length > 15) {
-            output += `_...and ${guildSubs.length - 15} more_\n`;
-          }
-          output += '\n';
-        }
-        
-        if (userSubs.length > 0) {
-          output += '**User Subscriptions:**\n';
-          for (const e of userSubs.slice(0, 15)) {
-            const typeLabel = getEntitlementTypeLabel(e.type);
-            output += `• \`${e.id}\` - <@${e.user_id}> - ${typeLabel}\n`;
-          }
-          if (userSubs.length > 15) {
-            output += `_...and ${userSubs.length - 15} more_\n`;
-          }
-        }
-        
-        await statusMsg.edit(output);
-      } else {
-        const error = await response.json();
-        await statusMsg.edit(`❌ **Failed to fetch entitlements**\n\n\`\`\`json\n${JSON.stringify(error, null, 2)}\n\`\`\``);
-      }
-    } catch (err) {
-      console.error('[Premium] Error listing:', err);
-      try {
-        const dmChannel = await message.author.createDM();
-        await dmChannel.send(`❌ Error listing entitlements: ${err.message}`);
-      } catch {}
-    }
-  }
-  
-  // Owner command: Check if a specific guild has premium
-  if (command.toLowerCase() === 'check-premium') {
-    if (message.author.id !== BOT_OWNER_ID) {
-      return; // Silently ignore for non-owners
-    }
-    
-    const guildId = args[0];
-    if (!guildId) {
-      return sendAdminResponse(message, '❌ Usage: `!check-premium <guild_id>`');
-    }
-    
-    try {
-      // Delete command for privacy
-      await message.delete().catch(() => {});
-      
-      const dmChannel = await message.author.createDM();
-      const statusMsg = await dmChannel.send(`⏳ Checking premium status for guild ${guildId}...`);
-      
-      // Check entitlements for this guild
-      const response = await fetch(`https://discord.com/api/v10/applications/${client.application.id}/entitlements?guild_id=${guildId}&exclude_ended=true`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bot ${process.env.DISCORD_TOKEN}`,
-        },
-      });
-      
-      if (response.ok) {
-        const entitlements = await response.json();
-        const guildName = client.guilds.cache.get(guildId)?.name || 'Unknown';
-        
-        if (entitlements.length === 0) {
-          await statusMsg.edit(`❌ **No premium**\n\n• Guild: ${guildName} (\`${guildId}\`)\n• Status: No active entitlements\n\nUse \`!grant-premium ${guildId}\` to grant free access.`);
-        } else {
-          let output = `✅ **Has premium!**\n\n• Guild: ${guildName} (\`${guildId}\`)\n• Active entitlements: ${entitlements.length}\n\n`;
-          for (const e of entitlements) {
-            const typeLabel = getEntitlementTypeLabel(e.type);
-            output += `• \`${e.id}\` - ${typeLabel}`;
-            if (e.ends_at) output += ` (expires: ${new Date(e.ends_at).toLocaleDateString()})`;
-            output += '\n';
-          }
-          await statusMsg.edit(output);
-        }
-      } else {
-        const error = await response.json();
-        await statusMsg.edit(`❌ **Failed to check premium**\n\n\`\`\`json\n${JSON.stringify(error, null, 2)}\n\`\`\``);
-      }
-    } catch (err) {
-      console.error('[Premium] Error checking:', err);
-      try {
-        const dmChannel = await message.author.createDM();
-        await dmChannel.send(`❌ Error checking premium: ${err.message}`);
-      } catch {}
-    }
-  }
 });
 
 // Helper: Get human-readable entitlement type
@@ -1482,9 +831,384 @@ function getEntitlementTypeLabel(type) {
   return types[type] || `Type ${type}`;
 }
 
-// Handle interactions (buttons + modals)
+// Handle interactions (buttons + modals + slash commands)
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
+    // Handle Slash Commands
+    if (interaction.isChatInputCommand()) {
+      const { commandName } = interaction;
+      
+      // Admin commands require Administrator permission
+      const isAdmin = interaction.member?.permissions.has(PermissionsBitField.Flags.Administrator);
+      const isOwner = interaction.user.id === BOT_OWNER_ID;
+      
+      // /setup-verify - Create verification panel
+      if (commandName === 'setup-verify') {
+        if (!isAdmin) {
+          return interaction.reply({ content: "❌ You need Administrator permission.", ephemeral: true });
+        }
+        
+        const hasAccess = await checkGuildEntitlement(interaction.guild.id);
+        if (!hasAccess) {
+          return interaction.reply({ ...getSubscriptionMessage(), ephemeral: true });
+        }
+        
+        const verifyButton = new ButtonBuilder()
+          .setCustomId('verify_tiktok_start')
+          .setLabel('Verify TikTok')
+          .setStyle(ButtonStyle.Primary);
+        const row = new ActionRowBuilder().addComponents(verifyButton);
+        
+        await interaction.channel.send({
+          content: '👋 **TikTok Verification**\n\nVerify your TikTok account to link your identity across platforms.\n\n**Before you start:**\n• Your TikTok profile must be **PUBLIC** (not private)\n• You\'ll receive a verification code\n• Add the code to the **BEGINNING** of your TikTok bio\n• Wait 30-60 seconds after saving before verifying\n\nOnce verified, you\'ll receive the **Verified** role.\n\n💀 Click below to begin:',
+          components: [row],
+        });
+        
+        return interaction.reply({ content: '✅ Verification panel created!', ephemeral: true });
+      }
+      
+      // /verified-list - Show verified users
+      if (commandName === 'verified-list') {
+        if (!isAdmin) {
+          return interaction.reply({ content: "❌ You need Administrator permission.", ephemeral: true });
+        }
+        
+        const verifiedUsers = getVerifiedUsers(interaction.guild.id);
+        if (verifiedUsers.length === 0) {
+          return interaction.reply({ content: '📋 No verified users yet.', ephemeral: true });
+        }
+        
+        const embed = new EmbedBuilder()
+          .setTitle('✅ Verified Users')
+          .setColor(0x43b581)
+          .setDescription(`Total: **${verifiedUsers.length}** verified users`)
+          .setTimestamp();
+        
+        const usersToShow = verifiedUsers.slice(0, 25);
+        const userList = usersToShow.map((u, i) => 
+          `**${i + 1}.** <@${u.discordId}> → [@${u.tiktokUsername}](https://tiktok.com/@${u.tiktokUsername})`
+        ).join('\n');
+        embed.addFields({ name: 'Linked Accounts', value: userList || 'None' });
+        
+        if (verifiedUsers.length > 25) {
+          embed.setFooter({ text: `Showing 25 of ${verifiedUsers.length} users` });
+        }
+        
+        return interaction.reply({ embeds: [embed], ephemeral: true });
+      }
+      
+      // /verified-export - Export as CSV
+      if (commandName === 'verified-export') {
+        if (!isAdmin) {
+          return interaction.reply({ content: "❌ You need Administrator permission.", ephemeral: true });
+        }
+        
+        const verifiedUsers = getVerifiedUsers(interaction.guild.id);
+        if (verifiedUsers.length === 0) {
+          return interaction.reply({ content: '📋 No verified users to export.', ephemeral: true });
+        }
+        
+        const csv = 'Discord ID,Discord Tag,TikTok Username,Verified At\n' + 
+          verifiedUsers.map(u => `${u.discordId},${u.discordTag},@${u.tiktokUsername},${u.verifiedAt}`).join('\n');
+        const buffer = Buffer.from(csv, 'utf8');
+        
+        return interaction.reply({
+          content: `📊 Exported ${verifiedUsers.length} verified users:`,
+          files: [{ attachment: buffer, name: `verified-users-${interaction.guild.id}.csv` }],
+          ephemeral: true
+        });
+      }
+      
+      // /manual-verify - Manually verify a user
+      if (commandName === 'manual-verify') {
+        if (!isAdmin) {
+          return interaction.reply({ content: "❌ You need Administrator permission.", ephemeral: true });
+        }
+        
+        const targetUser = interaction.options.getUser('user');
+        const tiktokUsername = interaction.options.getString('tiktok').replace(/^@/, '');
+        
+        try {
+          const member = await interaction.guild.members.fetch(targetUser.id);
+          const role = interaction.guild.roles.cache.get(VERIFIED_ROLE_ID);
+          if (role) await member.roles.add(role);
+          addVerifiedUser(interaction.guild.id, targetUser.id, targetUser.tag, tiktokUsername);
+          return interaction.reply({ content: `✅ Manually verified **${targetUser.tag}** as **@${tiktokUsername}**`, ephemeral: true });
+        } catch (err) {
+          return interaction.reply({ content: `❌ Error: ${err.message}`, ephemeral: true });
+        }
+      }
+      
+      // /pending - Show pending verifications
+      if (commandName === 'pending') {
+        if (!isAdmin) {
+          return interaction.reply({ content: "❌ You need Administrator permission.", ephemeral: true });
+        }
+        
+        await interaction.deferReply({ ephemeral: true });
+        
+        const allPending = await getAllPendingVerifications();
+        const guildPending = [];
+        for (const [discordId, data] of allPending.entries()) {
+          if (data.guildId === interaction.guild.id) {
+            guildPending.push({ discordId, ...data });
+          }
+        }
+        
+        if (guildPending.length === 0) {
+          return interaction.editReply('📋 No pending verifications in this server.');
+        }
+        
+        const embed = new EmbedBuilder()
+          .setTitle('⏳ Pending Verifications')
+          .setColor(0xf1c40f)
+          .setDescription(`Total: **${guildPending.length}** pending in this server`)
+          .setTimestamp();
+        
+        const pendingList = guildPending.slice(0, 25).map((p, i) => {
+          const username = p.username || 'Unknown';
+          const code = p.code || 'N/A';
+          let timeInfo = '';
+          if (p.createdAt) {
+            const elapsed = Date.now() - p.createdAt;
+            const remaining = Math.max(0, 24 * 60 * 60 * 1000 - elapsed);
+            const hoursLeft = Math.floor(remaining / (60 * 60 * 1000));
+            const minsLeft = Math.floor((remaining % (60 * 60 * 1000)) / (60 * 1000));
+            timeInfo = ` (${hoursLeft}h ${minsLeft}m left)`;
+          }
+          return `**${i + 1}.** <@${p.discordId}> → @${username}\n   Code: \`${code}\`${timeInfo}`;
+        }).join('\n\n');
+        
+        embed.addFields({ name: 'Waiting for Verification', value: pendingList || 'None' });
+        if (guildPending.length > 25) embed.setFooter({ text: `Showing 25 of ${guildPending.length} pending` });
+        
+        return interaction.editReply({ embeds: [embed] });
+      }
+      
+      // /cleanup - Remove stale pending verifications
+      if (commandName === 'cleanup') {
+        if (!isAdmin) {
+          return interaction.reply({ content: "❌ You need Administrator permission.", ephemeral: true });
+        }
+        
+        await interaction.deferReply({ ephemeral: true });
+        
+        const allPending = await getAllPendingVerifications();
+        let cleaned = 0, checked = 0;
+        const issues = [];
+        
+        for (const [discordId, data] of allPending.entries()) {
+          if (data.guildId !== interaction.guild.id) continue;
+          checked++;
+          let shouldRemove = false, reason = '';
+          
+          if (!data.username) { shouldRemove = true; reason = 'Missing TikTok username'; }
+          if (!data.code) { shouldRemove = true; reason = 'Missing verification code'; }
+          if (data.createdAt && Date.now() - data.createdAt > 24 * 60 * 60 * 1000) { shouldRemove = true; reason = 'Expired (>24 hours)'; }
+          
+          if (!shouldRemove && data.username) {
+            const bio = await fetchTikTokBio(data.username, 0);
+            if (bio === null) { shouldRemove = true; reason = 'TikTok account not found or private'; }
+          }
+          
+          if (shouldRemove) {
+            await removePendingVerification(discordId);
+            cleaned++;
+            issues.push(`<@${discordId}> (@${data.username || 'unknown'}): ${reason}`);
+          }
+          await new Promise(r => setTimeout(r, 500));
+        }
+        
+        if (cleaned === 0) {
+          return interaction.editReply(`✅ Scanned ${checked} pending verifications. All are valid!`);
+        }
+        
+        const embed = new EmbedBuilder()
+          .setTitle('🧹 Cleanup Complete')
+          .setColor(0x43b581)
+          .setDescription(`Removed **${cleaned}** of **${checked}** pending verifications.`)
+          .addFields({ name: 'Removed Entries', value: issues.slice(0, 10).join('\n') || 'None' })
+          .setTimestamp();
+        if (issues.length > 10) embed.setFooter({ text: `And ${issues.length - 10} more...` });
+        
+        return interaction.editReply({ embeds: [embed] });
+      }
+      
+      // /check-tiktok - Check TikTok account
+      if (commandName === 'check-tiktok') {
+        if (!isAdmin) {
+          return interaction.reply({ content: "❌ You need Administrator permission.", ephemeral: true });
+        }
+        
+        const username = interaction.options.getString('username').replace(/^@/, '');
+        await interaction.deferReply({ ephemeral: true });
+        
+        const bio = await fetchTikTokBio(username, 0);
+        
+        if (bio) {
+          const embed = new EmbedBuilder()
+            .setTitle(`✅ @${username}`)
+            .setColor(0x43b581)
+            .setDescription('**Account exists and is public**')
+            .addFields({ name: '📝 Bio', value: bio.substring(0, 1024) || '*No bio set*' })
+            .setURL(`https://tiktok.com/@${username}`)
+            .setTimestamp();
+          return interaction.editReply({ embeds: [embed] });
+        } else {
+          return interaction.editReply(`❌ Could not find **@${username}**\n\nPossible reasons:\n• Account doesn't exist\n• Account is private\n• TikTok is blocking requests`);
+        }
+      }
+      
+      // /unverify - Remove verification from user
+      if (commandName === 'unverify') {
+        if (!isAdmin) {
+          return interaction.reply({ content: "❌ You need Administrator permission.", ephemeral: true });
+        }
+        
+        const targetUser = interaction.options.getUser('user');
+        const verifiedUsers = getVerifiedUsers(interaction.guild.id);
+        const userData = verifiedUsers.find(u => u.discordId === targetUser.id);
+        
+        if (!userData) {
+          return interaction.reply({ content: `❌ **${targetUser.tag}** is not verified.`, ephemeral: true });
+        }
+        
+        removeVerifiedUser(interaction.guild.id, targetUser.id);
+        
+        try {
+          const member = await interaction.guild.members.fetch(targetUser.id);
+          const role = interaction.guild.roles.cache.get(VERIFIED_ROLE_ID);
+          if (role && member.roles.cache.has(role.id)) await member.roles.remove(role);
+        } catch {}
+        
+        return interaction.reply({ content: `✅ Removed verification for **${targetUser.tag}** (was @${userData.tiktokUsername})`, ephemeral: true });
+      }
+      
+      // /test-tiktok - Test TikTok bio fetching
+      if (commandName === 'test-tiktok') {
+        if (!isAdmin) {
+          return interaction.reply({ content: "❌ You need Administrator permission.", ephemeral: true });
+        }
+        
+        const testUser = interaction.options.getString('username')?.replace(/^@/, '') || 'tiktok';
+        await interaction.deferReply({ ephemeral: true });
+        
+        const bio = await fetchTikTokBio(testUser, 0);
+        
+        if (bio) {
+          return interaction.editReply(`✅ **Success!** Can read TikTok bios.\n\n**@${testUser}'s bio:**\n> ${bio.substring(0, 200)}${bio.length > 200 ? '...' : ''}`);
+        } else {
+          return interaction.editReply(`❌ **Failed!** Cannot read TikTok bio for @${testUser}.\n\nPossible issues:\n• TikTok may be blocking requests\n• The profile may be private\n• The username may not exist`);
+        }
+      }
+      
+      // OWNER ONLY COMMANDS
+      
+      // /grant-premium - Grant premium to guild
+      if (commandName === 'grant-premium') {
+        if (!isOwner) return interaction.reply({ content: "❌ Owner only command.", ephemeral: true });
+        
+        const guildId = interaction.options.getString('guild_id');
+        
+        entitlementCache.set(guildId, { 
+          hasAccess: true, checkedAt: Date.now(), grantedBy: interaction.user.id,
+          grantedAt: new Date().toISOString(), permanent: true
+        });
+        
+        if (redis) {
+          await redis.set(`${REDIS_PREFIX}premium:${guildId}`, JSON.stringify({
+            grantedBy: interaction.user.id, grantedAt: new Date().toISOString(), permanent: true
+          }));
+        }
+        
+        const guild = client.guilds.cache.get(guildId);
+        return interaction.reply({ content: `✅ Granted premium to **${guild?.name || 'Unknown'}** (\`${guildId}\`)`, ephemeral: true });
+      }
+      
+      // /revoke-premium - Revoke premium from guild
+      if (commandName === 'revoke-premium') {
+        if (!isOwner) return interaction.reply({ content: "❌ Owner only command.", ephemeral: true });
+        
+        const guildId = interaction.options.getString('guild_id');
+        entitlementCache.delete(guildId);
+        if (redis) await redis.del(`${REDIS_PREFIX}premium:${guildId}`);
+        
+        const guild = client.guilds.cache.get(guildId);
+        return interaction.reply({ content: `✅ Revoked premium from **${guild?.name || 'Unknown'}** (\`${guildId}\`)`, ephemeral: true });
+      }
+      
+      // /premium-list - List premium guilds
+      if (commandName === 'premium-list') {
+        if (!isOwner) return interaction.reply({ content: "❌ Owner only command.", ephemeral: true });
+        
+        const premiumGuilds = [];
+        
+        if (redis) {
+          const keys = await redis.keys(`${REDIS_PREFIX}premium:*`);
+          for (const key of keys) {
+            const guildId = key.replace(`${REDIS_PREFIX}premium:`, '');
+            const data = await redis.get(key);
+            const parsed = JSON.parse(data);
+            const guild = client.guilds.cache.get(guildId);
+            premiumGuilds.push({ guildId, name: guild?.name || 'Unknown', type: '🎁 Manual', grantedAt: parsed.grantedAt });
+          }
+        }
+        
+        for (const [guildId, data] of entitlementCache.entries()) {
+          if (data.hasAccess && !premiumGuilds.find(g => g.guildId === guildId)) {
+            const guild = client.guilds.cache.get(guildId);
+            premiumGuilds.push({ guildId, name: guild?.name || 'Unknown', type: data.permanent ? '🎁 Manual' : '💳 Sub' });
+          }
+        }
+        
+        if (premiumGuilds.length === 0) {
+          return interaction.reply({ content: '📋 No premium guilds.', ephemeral: true });
+        }
+        
+        const embed = new EmbedBuilder()
+          .setTitle('💎 Premium Guilds')
+          .setColor(0x9b59b6)
+          .setDescription(`Total: **${premiumGuilds.length}** guilds`)
+          .setTimestamp();
+        
+        const list = premiumGuilds.slice(0, 25).map((g, i) => `**${i + 1}.** ${g.name}\n   \`${g.guildId}\` ${g.type}`).join('\n\n');
+        embed.addFields({ name: 'Guilds', value: list || 'None' });
+        
+        return interaction.reply({ embeds: [embed], ephemeral: true });
+      }
+      
+      // /check-premium - Check guild premium status
+      if (commandName === 'check-premium') {
+        if (!isOwner) return interaction.reply({ content: "❌ Owner only command.", ephemeral: true });
+        
+        const guildId = interaction.options.getString('guild_id') || interaction.guild.id;
+        const guild = client.guilds.cache.get(guildId);
+        const cached = entitlementCache.get(guildId);
+        
+        let manualGrant = null;
+        if (redis) {
+          const data = await redis.get(`${REDIS_PREFIX}premium:${guildId}`);
+          if (data) manualGrant = JSON.parse(data);
+        }
+        
+        const hasAccess = cached?.hasAccess || manualGrant;
+        
+        const embed = new EmbedBuilder()
+          .setTitle(`💎 ${guild?.name || 'Unknown'}`)
+          .setColor(hasAccess ? 0x43b581 : 0xe74c3c)
+          .setDescription(`\`${guildId}\`\n\n${hasAccess ? '✅ **Premium Active**' : '❌ **No Premium**'}`)
+          .setTimestamp();
+        
+        if (manualGrant) {
+          embed.addFields({ name: '🎁 Manual Grant', value: `By: <@${manualGrant.grantedBy}>\nAt: ${manualGrant.grantedAt}` });
+        }
+        
+        return interaction.reply({ embeds: [embed], ephemeral: true });
+      }
+      
+      return; // End slash command handling
+    }
+    
     // Button: start verification - generate code first
     if (interaction.isButton()) {
       if (interaction.customId === 'verify_tiktok_start') {
