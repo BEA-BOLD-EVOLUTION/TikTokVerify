@@ -29,6 +29,8 @@ const client = new Client({
 
 const PREFIX = process.env.BOT_PREFIX || '!';
 const VERIFIED_ROLE_ID = process.env.VERIFIED_ROLE_ID;
+const SKU_ID = process.env.SKU_ID; // Your subscription SKU ID from Discord Developer Portal
+const BOT_OWNER_ID = process.env.BOT_OWNER_ID; // Your Discord user ID for owner-only commands
 const VERIFIED_USERS_FILE = path.join(__dirname, 'verified-users.json');
 const PENDING_VERIFICATIONS_FILE = path.join(__dirname, 'pending-verifications.json');
 
@@ -1018,7 +1020,245 @@ client.on(Events.MessageCreate, async (message) => {
 
     await statusMsg.edit(output);
   }
+
+  // ========== BOT OWNER COMMANDS (Premium Management) ==========
+  
+  // Owner command: Grant free premium to a guild
+  if (command.toLowerCase() === 'grant-premium') {
+    if (message.author.id !== BOT_OWNER_ID) {
+      return; // Silently ignore for non-owners
+    }
+    
+    const guildId = args[0];
+    if (!guildId) {
+      return sendAdminResponse(message, '❌ Usage: `!grant-premium <guild_id>`\n\nExample: `!grant-premium 123456789012345678`');
+    }
+    
+    if (!SKU_ID) {
+      return sendAdminResponse(message, '❌ SKU_ID not configured. Add SKU_ID to your environment variables.');
+    }
+    
+    try {
+      // Delete command for privacy
+      await message.delete().catch(() => {});
+      
+      const dmChannel = await message.author.createDM();
+      const statusMsg = await dmChannel.send(`⏳ Granting premium to guild ${guildId}...`);
+      
+      // Create test entitlement via Discord API
+      const response = await fetch(`https://discord.com/api/v10/applications/${client.application.id}/entitlements`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bot ${process.env.DISCORD_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sku_id: SKU_ID,
+          owner_id: guildId,
+          owner_type: 1, // 1 = guild subscription
+        }),
+      });
+      
+      if (response.ok) {
+        const entitlement = await response.json();
+        await statusMsg.edit(`✅ **Premium granted!**\n\n• Guild ID: \`${guildId}\`\n• Entitlement ID: \`${entitlement.id}\`\n• Type: Guild Subscription (Free)\n\n_The guild now has premium access. They may need to reload Discord._`);
+      } else {
+        const error = await response.json();
+        await statusMsg.edit(`❌ **Failed to grant premium**\n\n\`\`\`json\n${JSON.stringify(error, null, 2)}\n\`\`\``);
+      }
+    } catch (err) {
+      console.error('[Premium] Error granting:', err);
+      try {
+        const dmChannel = await message.author.createDM();
+        await dmChannel.send(`❌ Error granting premium: ${err.message}`);
+      } catch {}
+    }
+  }
+  
+  // Owner command: Revoke premium from a guild (delete entitlement)
+  if (command.toLowerCase() === 'revoke-premium') {
+    if (message.author.id !== BOT_OWNER_ID) {
+      return; // Silently ignore for non-owners
+    }
+    
+    const entitlementId = args[0];
+    if (!entitlementId) {
+      return sendAdminResponse(message, '❌ Usage: `!revoke-premium <entitlement_id>`\n\nUse `!premium-list` to find entitlement IDs.');
+    }
+    
+    try {
+      // Delete command for privacy
+      await message.delete().catch(() => {});
+      
+      const dmChannel = await message.author.createDM();
+      const statusMsg = await dmChannel.send(`⏳ Revoking entitlement ${entitlementId}...`);
+      
+      // Delete entitlement via Discord API
+      const response = await fetch(`https://discord.com/api/v10/applications/${client.application.id}/entitlements/${entitlementId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bot ${process.env.DISCORD_TOKEN}`,
+        },
+      });
+      
+      if (response.ok || response.status === 204) {
+        await statusMsg.edit(`✅ **Premium revoked!**\n\n• Entitlement ID: \`${entitlementId}\`\n\n_The entitlement has been deleted._`);
+      } else {
+        const error = await response.json().catch(() => ({ message: 'Unknown error' }));
+        await statusMsg.edit(`❌ **Failed to revoke premium**\n\n\`\`\`json\n${JSON.stringify(error, null, 2)}\n\`\`\``);
+      }
+    } catch (err) {
+      console.error('[Premium] Error revoking:', err);
+      try {
+        const dmChannel = await message.author.createDM();
+        await dmChannel.send(`❌ Error revoking premium: ${err.message}`);
+      } catch {}
+    }
+  }
+  
+  // Owner command: List all entitlements (premium subscriptions)
+  if (command.toLowerCase() === 'premium-list') {
+    if (message.author.id !== BOT_OWNER_ID) {
+      return; // Silently ignore for non-owners
+    }
+    
+    try {
+      // Delete command for privacy
+      await message.delete().catch(() => {});
+      
+      const dmChannel = await message.author.createDM();
+      const statusMsg = await dmChannel.send('⏳ Fetching entitlements...');
+      
+      // List entitlements via Discord API
+      const response = await fetch(`https://discord.com/api/v10/applications/${client.application.id}/entitlements?limit=100&exclude_ended=true`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bot ${process.env.DISCORD_TOKEN}`,
+        },
+      });
+      
+      if (response.ok) {
+        const entitlements = await response.json();
+        
+        if (entitlements.length === 0) {
+          await statusMsg.edit('📋 **No active entitlements found.**\n\nUse `!grant-premium <guild_id>` to grant free premium access.');
+          return;
+        }
+        
+        let output = `📋 **Active Entitlements:** ${entitlements.length}\n\n`;
+        
+        // Group by type
+        const guildSubs = entitlements.filter(e => e.guild_id);
+        const userSubs = entitlements.filter(e => e.user_id && !e.guild_id);
+        
+        if (guildSubs.length > 0) {
+          output += '**Guild Subscriptions:**\n';
+          for (const e of guildSubs.slice(0, 15)) {
+            const typeLabel = getEntitlementTypeLabel(e.type);
+            const guildName = client.guilds.cache.get(e.guild_id)?.name || 'Unknown';
+            output += `• \`${e.id}\` - ${guildName} (\`${e.guild_id}\`) - ${typeLabel}\n`;
+          }
+          if (guildSubs.length > 15) {
+            output += `_...and ${guildSubs.length - 15} more_\n`;
+          }
+          output += '\n';
+        }
+        
+        if (userSubs.length > 0) {
+          output += '**User Subscriptions:**\n';
+          for (const e of userSubs.slice(0, 15)) {
+            const typeLabel = getEntitlementTypeLabel(e.type);
+            output += `• \`${e.id}\` - <@${e.user_id}> - ${typeLabel}\n`;
+          }
+          if (userSubs.length > 15) {
+            output += `_...and ${userSubs.length - 15} more_\n`;
+          }
+        }
+        
+        await statusMsg.edit(output);
+      } else {
+        const error = await response.json();
+        await statusMsg.edit(`❌ **Failed to fetch entitlements**\n\n\`\`\`json\n${JSON.stringify(error, null, 2)}\n\`\`\``);
+      }
+    } catch (err) {
+      console.error('[Premium] Error listing:', err);
+      try {
+        const dmChannel = await message.author.createDM();
+        await dmChannel.send(`❌ Error listing entitlements: ${err.message}`);
+      } catch {}
+    }
+  }
+  
+  // Owner command: Check if a specific guild has premium
+  if (command.toLowerCase() === 'check-premium') {
+    if (message.author.id !== BOT_OWNER_ID) {
+      return; // Silently ignore for non-owners
+    }
+    
+    const guildId = args[0];
+    if (!guildId) {
+      return sendAdminResponse(message, '❌ Usage: `!check-premium <guild_id>`');
+    }
+    
+    try {
+      // Delete command for privacy
+      await message.delete().catch(() => {});
+      
+      const dmChannel = await message.author.createDM();
+      const statusMsg = await dmChannel.send(`⏳ Checking premium status for guild ${guildId}...`);
+      
+      // Check entitlements for this guild
+      const response = await fetch(`https://discord.com/api/v10/applications/${client.application.id}/entitlements?guild_id=${guildId}&exclude_ended=true`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bot ${process.env.DISCORD_TOKEN}`,
+        },
+      });
+      
+      if (response.ok) {
+        const entitlements = await response.json();
+        const guildName = client.guilds.cache.get(guildId)?.name || 'Unknown';
+        
+        if (entitlements.length === 0) {
+          await statusMsg.edit(`❌ **No premium**\n\n• Guild: ${guildName} (\`${guildId}\`)\n• Status: No active entitlements\n\nUse \`!grant-premium ${guildId}\` to grant free access.`);
+        } else {
+          let output = `✅ **Has premium!**\n\n• Guild: ${guildName} (\`${guildId}\`)\n• Active entitlements: ${entitlements.length}\n\n`;
+          for (const e of entitlements) {
+            const typeLabel = getEntitlementTypeLabel(e.type);
+            output += `• \`${e.id}\` - ${typeLabel}`;
+            if (e.ends_at) output += ` (expires: ${new Date(e.ends_at).toLocaleDateString()})`;
+            output += '\n';
+          }
+          await statusMsg.edit(output);
+        }
+      } else {
+        const error = await response.json();
+        await statusMsg.edit(`❌ **Failed to check premium**\n\n\`\`\`json\n${JSON.stringify(error, null, 2)}\n\`\`\``);
+      }
+    } catch (err) {
+      console.error('[Premium] Error checking:', err);
+      try {
+        const dmChannel = await message.author.createDM();
+        await dmChannel.send(`❌ Error checking premium: ${err.message}`);
+      } catch {}
+    }
+  }
 });
+
+// Helper: Get human-readable entitlement type
+function getEntitlementTypeLabel(type) {
+  const types = {
+    1: '💰 Purchased',
+    2: '💎 Nitro',
+    3: '🎁 Dev Gift',
+    4: '🧪 Test Mode',
+    5: '🆓 Free',
+    6: '🎁 User Gift',
+    7: '💎 Nitro Bonus',
+    8: '📱 Subscription',
+  };
+  return types[type] || `Type ${type}`;
+}
 
 // Handle interactions (buttons + modals)
 client.on(Events.InteractionCreate, async (interaction) => {
