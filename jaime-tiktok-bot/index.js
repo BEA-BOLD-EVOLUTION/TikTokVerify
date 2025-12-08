@@ -1327,13 +1327,39 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       // Old flow (keeping for backwards compatibility)
       if (interaction.customId === 'verify_tiktok_modal') {
-        const username = interaction.fields
+        const rawInput = interaction.fields
           .getTextInputValue('tiktok_username')
           .trim();
 
+        // Validate input isn't empty
+        if (!rawInput) {
+          return interaction.reply({
+            content: '❌ Please enter your TikTok username or profile link.',
+            ephemeral: true,
+          });
+        }
+
+        // Extract username from URL if provided, otherwise use as-is
+        let username = rawInput;
+        const urlMatch = rawInput.match(/(?:https?:\/\/)?(?:www\.|vm\.)?tiktok\.com\/@([a-zA-Z0-9_.]+)/i);
+        if (urlMatch) {
+          username = urlMatch[1];
+        } else {
+          // Clean up the username
+          username = rawInput.replace(/^@/, '').trim();
+        }
+
+        // Validate username format
+        if (!username || !/^[a-zA-Z0-9_.]{2,24}$/.test(username)) {
+          return interaction.reply({
+            content: '❌ That doesn\'t look like a valid TikTok username. TikTok usernames:\n• Are 2-24 characters long\n• Can only contain letters, numbers, underscores, and periods\n• No spaces or emojis\n\nPlease try again with just your username (e.g., `yourname` or `@yourname`).',
+            ephemeral: true,
+          });
+        }
+
         const code = await generateCode(interaction.guild);
         const oldFlowData = {
-          username: username.replace(/^@/, ''),
+          username: username,
           code,
           guildId: interaction.guild.id,
         };
@@ -1352,7 +1378,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const row = new ActionRowBuilder().addComponents(checkButton);
 
         await interaction.reply({
-          content: `Great! We're verifying your TikTok.\n\nTikTok username: **${username}**\n\nPlease temporarily add this code to your TikTok bio:\n\`\`\`\n${code}\n\`\`\`\nOnce it's in your bio, click **"I Added the Code"** below and I'll check it.\n\nIf you change your mind, you can ignore this and nothing will happen.`,
+          content: `Great! We're verifying your TikTok.\n\nTikTok username: **@${username}**\n\nPlease temporarily add this code to your TikTok bio:\n\`\`\`\n${code}\n\`\`\`\nOnce it's in your bio, click **"I Added the Code"** below and I'll check it.\n\nIf you change your mind, you can ignore this and nothing will happen.`,
           components: [row],
           ephemeral: true,
         });
