@@ -1208,9 +1208,9 @@
         <div class="highlight-box">
             <h3>If still not working after 24 hours:</h3>
             <ul>
-                <li>Run <code>!check-tiktok @username</code> to verify the account exists.</li>
-                <li>Run <code>!cleanup</code> to remove stale records.</li>
-                <li>Admins can use <code>!manual-verify @user @tiktok</code> to verify manually.</li>
+                <li>Run <code>/check-tiktok</code> to verify the account exists.</li>
+                <li>Run <code>/cleanup</code> to remove stale records.</li>
+                <li>Admins can use <code>/manual-verify</code> to verify manually.</li>
             </ul>
         </div>
 
@@ -1239,10 +1239,10 @@
         <hr style="border: none; border-top: 1px solid var(--border); margin: 40px 0;">
 
         <h2>Admin Bot Commands</h2>
-        <p>All commands require the <strong>Manage Roles</strong> permission.</p>
+        <p>All commands require <strong>Administrator</strong> permission. Use Discord's slash command menu (type <code>/</code>) to see available commands.</p>
         
         <div class="highlight-box">
-            <p>🔒 <strong>Privacy:</strong> All admin command responses are sent via <strong>DM</strong> to keep sensitive information private. The command message is automatically deleted from the channel.</p>
+            <p>🔒 <strong>Privacy:</strong> All admin command responses are <strong>ephemeral</strong> (only visible to you) to keep sensitive information private.</p>
         </div>
 
         <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
@@ -1251,36 +1251,40 @@
                 <th style="padding: 12px; text-align: left;">Description</th>
             </tr>
             <tr style="border-bottom: 1px solid var(--border);">
-                <td style="padding: 12px;"><code>!setup-verify</code></td>
+                <td style="padding: 12px;"><code>/setup-verify</code></td>
                 <td style="padding: 12px;">Creates the verification panel in the current channel</td>
             </tr>
             <tr style="border-bottom: 1px solid var(--border);">
-                <td style="padding: 12px;"><code>!verified-list</code></td>
+                <td style="padding: 12px;"><code>/verified-list</code></td>
                 <td style="padding: 12px;">Shows all verified users and their TikTok profiles</td>
             </tr>
             <tr style="border-bottom: 1px solid var(--border);">
-                <td style="padding: 12px;"><code>!verified-export</code></td>
+                <td style="padding: 12px;"><code>/verified-export</code></td>
                 <td style="padding: 12px;">Exports CSV with: Discord ID, Discord Tag, TikTok Username, Verification time</td>
             </tr>
             <tr style="border-bottom: 1px solid var(--border);">
-                <td style="padding: 12px;"><code>!pending</code></td>
+                <td style="padding: 12px;"><code>/pending</code></td>
                 <td style="padding: 12px;">Shows all pending verifications with usernames, codes, and time remaining</td>
             </tr>
             <tr style="border-bottom: 1px solid var(--border);">
-                <td style="padding: 12px;"><code>!cleanup</code></td>
+                <td style="padding: 12px;"><code>/cleanup</code></td>
                 <td style="padding: 12px;">Removes stale/invalid pending verifications (missing usernames, expired, or non-existent TikTok accounts)</td>
             </tr>
             <tr style="border-bottom: 1px solid var(--border);">
-                <td style="padding: 12px;"><code>!manual-verify @user @tiktok</code></td>
+                <td style="padding: 12px;"><code>/manual-verify</code></td>
                 <td style="padding: 12px;">Manually verify a user with their TikTok username</td>
             </tr>
             <tr style="border-bottom: 1px solid var(--border);">
-                <td style="padding: 12px;"><code>!unverify @user</code></td>
+                <td style="padding: 12px;"><code>/unverify</code></td>
                 <td style="padding: 12px;">Remove verification from a user (removes role and record)</td>
             </tr>
             <tr style="border-bottom: 1px solid var(--border);">
-                <td style="padding: 12px;"><code>!check-tiktok @username</code></td>
+                <td style="padding: 12px;"><code>/check-tiktok</code></td>
                 <td style="padding: 12px;">Check if a TikTok account exists and view their bio</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 12px;"><code>/test-tiktok</code></td>
+                <td style="padding: 12px;">Test if the bot can read TikTok bios (useful for troubleshooting)</td>
             </tr>
         </table>
 
