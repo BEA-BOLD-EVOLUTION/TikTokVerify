@@ -901,14 +901,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isChatInputCommand()) {
       const { commandName } = interaction;
       
-      // Admin commands require Administrator permission
-      const isAdmin = interaction.member?.permissions.has(PermissionsBitField.Flags.Administrator);
+      // Admin commands require Administrator permission OR Mods/Admins role
+      const hasAdminPerm = interaction.member?.permissions.has(PermissionsBitField.Flags.Administrator);
+      const hasModRole = interaction.member?.roles.cache.some(role => 
+        role.name.toLowerCase() === 'mods' || role.name.toLowerCase() === 'admins'
+      );
+      const isAdmin = hasAdminPerm || hasModRole;
       const isOwner = interaction.user.id === BOT_OWNER_ID;
       
       // /setup-verify - Create verification panel
       if (commandName === 'setup-verify') {
         if (!isAdmin) {
-          return interaction.reply({ content: "❌ You need Administrator permission.", ephemeral: true });
+          return interaction.reply({ content: "❌ You need Administrator permission or Mods/Admins role.", ephemeral: true });
         }
         
         const hasAccess = await checkGuildEntitlement(interaction.guild.id);
@@ -933,7 +937,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // /verified-list - Show verified users
       if (commandName === 'verified-list') {
         if (!isAdmin) {
-          return interaction.reply({ content: "❌ You need Administrator permission.", ephemeral: true });
+          return interaction.reply({ content: "❌ You need Administrator permission or Mods/Admins role.", ephemeral: true });
         }
         
         const verifiedUsers = getVerifiedUsers(interaction.guild.id);
@@ -963,7 +967,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // /verified-export - Export as CSV
       if (commandName === 'verified-export') {
         if (!isAdmin) {
-          return interaction.reply({ content: "❌ You need Administrator permission.", ephemeral: true });
+          return interaction.reply({ content: "❌ You need Administrator permission or Mods/Admins role.", ephemeral: true });
         }
         
         const verifiedUsers = getVerifiedUsers(interaction.guild.id);
@@ -985,7 +989,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // /manual-verify - Manually verify a user
       if (commandName === 'manual-verify') {
         if (!isAdmin) {
-          return interaction.reply({ content: "❌ You need Administrator permission.", ephemeral: true });
+          return interaction.reply({ content: "❌ You need Administrator permission or Mods/Admins role.", ephemeral: true });
         }
         
         const targetUser = interaction.options.getUser('user');
@@ -1005,7 +1009,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // /pending - Show pending verifications
       if (commandName === 'pending') {
         if (!isAdmin) {
-          return interaction.reply({ content: "❌ You need Administrator permission.", ephemeral: true });
+          return interaction.reply({ content: "❌ You need Administrator permission or Mods/Admins role.", ephemeral: true });
         }
         
         await interaction.deferReply({ ephemeral: true });
@@ -1051,7 +1055,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // /cleanup - Remove stale pending verifications
       if (commandName === 'cleanup') {
         if (!isAdmin) {
-          return interaction.reply({ content: "❌ You need Administrator permission.", ephemeral: true });
+          return interaction.reply({ content: "❌ You need Administrator permission or Mods/Admins role.", ephemeral: true });
         }
         
         await interaction.deferReply({ ephemeral: true });
@@ -1100,7 +1104,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // /check-tiktok - Check TikTok account
       if (commandName === 'check-tiktok') {
         if (!isAdmin) {
-          return interaction.reply({ content: "❌ You need Administrator permission.", ephemeral: true });
+          return interaction.reply({ content: "❌ You need Administrator permission or Mods/Admins role.", ephemeral: true });
         }
         
         const username = interaction.options.getString('username').replace(/^@/, '');
@@ -1125,7 +1129,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // /unverify - Remove verification from user
       if (commandName === 'unverify') {
         if (!isAdmin) {
-          return interaction.reply({ content: "❌ You need Administrator permission.", ephemeral: true });
+          return interaction.reply({ content: "❌ You need Administrator permission or Mods/Admins role.", ephemeral: true });
         }
         
         const targetUser = interaction.options.getUser('user');
@@ -1150,7 +1154,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // /test-tiktok - Test TikTok bio fetching
       if (commandName === 'test-tiktok') {
         if (!isAdmin) {
-          return interaction.reply({ content: "❌ You need Administrator permission.", ephemeral: true });
+          return interaction.reply({ content: "❌ You need Administrator permission or Mods/Admins role.", ephemeral: true });
         }
         
         const testUser = interaction.options.getString('username')?.replace(/^@/, '') || 'tiktok';
