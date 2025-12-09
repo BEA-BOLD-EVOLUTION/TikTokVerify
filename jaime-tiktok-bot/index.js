@@ -676,61 +676,80 @@ async function runBackgroundVerificationCheck() {
     }
 
     try {
-      // Try up to 10 times to fetch bio (different CDN servers may have different cache)
+      // Try up to 120 times total (12 rounds of 10 attempts with 5 second delays)
       let result = null;
       let lastBio = null;
-      const maxAttempts = 10;
+      const maxRounds = 12;
+      const attemptsPerRound = 10;
+      let verified = false;
       
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        result = await fetchTikTokBio(record.username, attempt - 1);
+      for (let round = 1; round <= maxRounds && !verified; round++) {
+        console.log(`[Background Verify] ${discordId} (@${record.username}) - Round ${round}/${maxRounds}`);
         
-        if (result.accountNotFound) {
-          break; // Account definitely doesn't exist
-        }
-        
-        if (result.bio) {
-          lastBio = result.bio;
+        for (let attempt = 1; attempt <= attemptsPerRound && !verified; attempt++) {
+          result = await fetchTikTokBio(record.username, (round - 1) * attemptsPerRound + attempt - 1);
           
-          // Check if code is in bio
-          const bioUpper = result.bio.toUpperCase();
-          const allCodes = [record.code, ...(record.previousCodes || [])];
-          let foundCode = false;
+          if (result.accountNotFound) {
+            console.log(`[Background Verify] ${discordId} (@${record.username}) - Account not found, removing from pending`);
+            pendingVerifications.delete(discordId);
+            if (redis) {
+              await redisDeletePending(discordId);
+            }
+            break;
+          }
           
-          for (const code of allCodes) {
-            const codeUpper = code.toUpperCase();
-            const typoVariant = codeUpper.replace('JAIME', 'JAMIE');
+          if (result.bio) {
+            lastBio = result.bio;
             
-            if (bioUpper.includes(codeUpper) || bioUpper.includes(typoVariant)) {
-              // Found it! No need to retry
-              console.log(`[Background Verify] Found code on attempt ${attempt}`);
-              foundCode = true;
-              break;
+            // Check if code is in bio
+            const bioUpper = result.bio.toUpperCase();
+            const allCodes = [record.code, ...(record.previousCodes || [])];
+            
+            for (const code of allCodes) {
+              const codeUpper = code.toUpperCase();
+              const typoVariant = codeUpper.replace('JAIME', 'JAMIE');
+              
+              if (bioUpper.includes(codeUpper) || bioUpper.includes(typoVariant)) {
+                // Found it! Stop all attempts
+                console.log(`[Background Verify] ✅ Found code on round ${round}, attempt ${attempt}`);
+                verified = true;
+                break;
+              }
             }
           }
           
-          if (foundCode) break; // Stop retrying, we found it
+          // Wait 5 seconds before next retry
+          if (!verified && attempt < attemptsPerRound) {
+            await new Promise(r => setTimeout(r, 5000));
+          }
         }
         
-        // Wait 2 seconds before retry
-        if (attempt < maxAttempts) {
-          await new Promise(r => setTimeout(r, 2000));
+        if (result.accountNotFound) {
+          break; // Stop all rounds if account not found
+        }
+        
+        // Wait between rounds if not verified yet (optional, can add longer delay here)
+        if (!verified && round < maxRounds) {
+          console.log(`[Background Verify] ${discordId} - Completed round ${round}, waiting before next round...`);
+          await new Promise(r => setTimeout(r, 5000));
         }
       }
       
       if (result.accountNotFound) {
-        console.log(`[Background Verify] ${discordId} (@${record.username}) - Account not found, removing from pending`);
-        pendingVerifications.delete(discordId);
-        if (redis) {
-          await redisDeletePending(discordId);
-        }
-        continue;
+        continue; // Already handled above
       }
       
       if (!lastBio) {
-        console.log(`[Background Verify] ${discordId} (@${record.username}) - Could not fetch bio after ${maxAttempts} attempts${result.emptyBio ? ' (bio is empty)' : ''}`);
+        console.log(`[Background Verify] ${discordId} (@${record.username}) - Could not fetch bio after ${maxRounds * attemptsPerRound} attempts${result.emptyBio ? ' (bio is empty)' : ''}`);
+        continue;
+      }
+      
+      if (!verified) {
+        console.log(`[Background Verify] ${discordId} (@${record.username}) - Code not found after ${maxRounds * attemptsPerRound} attempts`);
         continue;
       }
 
+      // If we get here, verified is true - find the matched code
       const bioUpper = lastBio.toUpperCase();
       const allCodes = [record.code, ...(record.previousCodes || [])];
       let matchedCode = null;
