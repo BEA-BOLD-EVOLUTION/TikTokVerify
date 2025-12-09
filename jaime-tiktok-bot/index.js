@@ -339,6 +339,27 @@ async function removePendingVerification(discordId) {
 
 // Load verified users from file (async)
 async function loadVerifiedUsers() {
+  // Try Redis first if available
+  if (redis) {
+    try {
+      const keys = await redis.keys(`${REDIS_PREFIX}verified:*`);
+      if (keys.length > 0) {
+        const users = {};
+        for (const key of keys) {
+          const guildId = key.replace(`${REDIS_PREFIX}verified:`, '');
+          const data = await redis.get(key);
+          if (data) {
+            users[guildId] = JSON.parse(data);
+          }
+        }
+        return users;
+      }
+    } catch (err) {
+      console.error('[Redis] Error loading verified users:', err.message);
+    }
+  }
+  
+  // Fallback to file
   try {
     if (fs.existsSync(VERIFIED_USERS_FILE)) {
       const data = await fsPromises.readFile(VERIFIED_USERS_FILE, 'utf8');
@@ -352,6 +373,18 @@ async function loadVerifiedUsers() {
 
 // Save verified users to file (async)
 async function saveVerifiedUsers(users) {
+  // Save to Redis if available
+  if (redis) {
+    try {
+      for (const [guildId, guildUsers] of Object.entries(users)) {
+        await redis.set(`${REDIS_PREFIX}verified:${guildId}`, JSON.stringify(guildUsers));
+      }
+    } catch (err) {
+      console.error('[Redis] Error saving verified users:', err.message);
+    }
+  }
+  
+  // Also save to file as backup
   try {
     await fsPromises.writeFile(VERIFIED_USERS_FILE, JSON.stringify(users, null, 2));
   } catch (err) {
