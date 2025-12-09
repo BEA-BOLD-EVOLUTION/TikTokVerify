@@ -34,6 +34,10 @@ const BOT_OWNER_ID = process.env.BOT_OWNER_ID; // Bot owner's Discord user ID (s
 const VERIFIED_USERS_FILE = path.join(__dirname, 'verified-users.json');
 const PENDING_VERIFICATIONS_FILE = path.join(__dirname, 'pending-verifications.json');
 
+// Premium guilds from environment (comma-separated list of guild IDs)
+// Set PREMIUM_GUILDS=123456789,987654321 in Railway to grant free access
+const PREMIUM_GUILDS = process.env.PREMIUM_GUILDS ? process.env.PREMIUM_GUILDS.split(',').map(id => id.trim()) : [];
+
 // Redis connection (optional - falls back to file storage if not configured)
 let redis = null;
 const REDIS_PREFIX = 'tiktok_verify:';
@@ -74,10 +78,30 @@ async function checkGuildEntitlement(guildId) {
     return true;
   }
   
+  // Check if guild is in PREMIUM_GUILDS environment variable
+  if (PREMIUM_GUILDS.includes(guildId)) {
+    console.log(`[Entitlement] Guild ${guildId} has env-based premium access`);
+    return true;
+  }
+  
   // Check cache first
   const cached = entitlementCache.get(guildId);
   if (cached && Date.now() - cached.checkedAt < ENTITLEMENT_CACHE_TTL) {
     return cached.hasAccess;
+  }
+  
+  // Check Redis for manually granted premium
+  if (redis) {
+    try {
+      const manualGrant = await redis.get(`${REDIS_PREFIX}premium:${guildId}`);
+      if (manualGrant) {
+        console.log(`[Entitlement] Guild ${guildId} has Redis-based premium access`);
+        entitlementCache.set(guildId, { hasAccess: true, checkedAt: Date.now() });
+        return true;
+      }
+    } catch (err) {
+      console.error('[Entitlement] Redis check error:', err.message);
+    }
   }
   
   try {
@@ -793,6 +817,8 @@ const slashCommands = [
 // When bot is ready
 client.once(Events.ClientReady, async (c) => {
   console.log(`Logged in as ${c.user.tag}`);
+  console.log(`[Config] Bot Owner ID: ${BOT_OWNER_ID || 'NOT SET'}`);
+  console.log(`[Config] Premium Guilds from env: ${PREMIUM_GUILDS.length > 0 ? PREMIUM_GUILDS.join(', ') : 'None'}`);
   
   // Register slash commands
   try {
