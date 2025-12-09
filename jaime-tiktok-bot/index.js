@@ -78,6 +78,27 @@ const pendingVerifications = new Map();
 
 // Load guild configurations from file (async)
 async function loadGuildConfigs() {
+  // Try Redis first if available
+  if (redis) {
+    try {
+      const keys = await redis.keys(`${REDIS_PREFIX}config:*`);
+      if (keys.length > 0) {
+        for (const key of keys) {
+          const guildId = key.replace(`${REDIS_PREFIX}config:`, '');
+          const data = await redis.get(key);
+          if (data) {
+            guildConfigs.set(guildId, JSON.parse(data));
+          }
+        }
+        console.log(`[Config] Loaded configurations for ${guildConfigs.size} guilds from Redis`);
+        return;
+      }
+    } catch (err) {
+      console.error('[Redis] Error loading guild configs:', err.message);
+    }
+  }
+  
+  // Fallback to file
   try {
     if (fs.existsSync(GUILD_CONFIG_FILE)) {
       const data = await fsPromises.readFile(GUILD_CONFIG_FILE, 'utf8');
@@ -85,7 +106,7 @@ async function loadGuildConfigs() {
       for (const [guildId, config] of Object.entries(configs)) {
         guildConfigs.set(guildId, config);
       }
-      console.log(`[Config] Loaded configurations for ${guildConfigs.size} guilds`);
+      console.log(`[Config] Loaded configurations for ${guildConfigs.size} guilds from file`);
     }
   } catch (err) {
     console.error('[Config] Error loading guild configs:', err);
@@ -94,6 +115,18 @@ async function loadGuildConfigs() {
 
 // Save guild configurations to file (async)
 async function saveGuildConfigs() {
+  // Save to Redis if available
+  if (redis) {
+    try {
+      for (const [guildId, config] of guildConfigs.entries()) {
+        await redis.set(`${REDIS_PREFIX}config:${guildId}`, JSON.stringify(config));
+      }
+    } catch (err) {
+      console.error('[Redis] Error saving guild configs:', err.message);
+    }
+  }
+  
+  // Also save to file as backup
   try {
     const configs = Object.fromEntries(guildConfigs);
     await fsPromises.writeFile(GUILD_CONFIG_FILE, JSON.stringify(configs, null, 2));
