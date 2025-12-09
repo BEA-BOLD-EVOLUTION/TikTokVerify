@@ -582,12 +582,11 @@ async function fetchTikTokBio(username, attemptNum = 0) {
 
 // Retry function with progressive delays for mobile app sync issues
 // TikTok's mobile app can take 30-60 seconds to sync bio changes to web
-// Now retries indefinitely until success or account not found
-async function fetchTikTokBioWithRetry(username, maxRetries = Infinity) {
+// This does 10 quick attempts with 5 second delays. Background checker handles long-term checks every 2 hours.
+async function fetchTikTokBioWithRetry(username, maxRetries = 10) {
   let lastResult = { bio: null, accountNotFound: false, emptyBio: false };
-  let i = 0;
   
-  while (i < maxRetries) {
+  for (let i = 0; i < maxRetries; i++) {
     const result = await fetchTikTokBio(username, i);
     
     // If account not found, return immediately
@@ -600,13 +599,11 @@ async function fetchTikTokBioWithRetry(username, maxRetries = Infinity) {
     }
     
     lastResult = result;
-    i++;
     
-    // Progressive delays: 2s, 3s, 4s, 5s between retries
+    // 5 second delay between retries
     if (i < maxRetries - 1) {
-      const delay = (i + 2) * 1000;
-      console.log(`Waiting ${delay}ms before retry ${i + 2}...`);
-      await new Promise(r => setTimeout(r, delay));
+      console.log(`Waiting 5s before retry ${i + 2}...`);
+      await new Promise(r => setTimeout(r, 5000));
     }
   }
   
