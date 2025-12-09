@@ -809,14 +809,6 @@ const slashCommands = [
     .setDescription('Test if bot can read TikTok bios')
     .addStringOption(option => option.setName('username').setDescription('TikTok username to test').setRequired(false)),
   new SlashCommandBuilder()
-    .setName('grant-premium')
-    .setDescription('Grant premium access to a guild (owner only)')
-    .addStringOption(option => option.setName('guild_id').setDescription('Guild ID').setRequired(true)),
-  new SlashCommandBuilder()
-    .setName('revoke-premium')
-    .setDescription('Revoke premium access from a guild (owner only)')
-    .addStringOption(option => option.setName('guild_id').setDescription('Guild ID').setRequired(true)),
-  new SlashCommandBuilder()
     .setName('premium-list')
     .setDescription('List all guilds with premium access (owner only)'),
   new SlashCommandBuilder()
@@ -1170,39 +1162,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
       
       // OWNER ONLY COMMANDS
-      
-      // /grant-premium - Grant premium to guild
-      if (commandName === 'grant-premium') {
-        if (!isOwner) return interaction.reply({ content: "❌ Owner only command.", ephemeral: true });
-        
-        const guildId = interaction.options.getString('guild_id');
-        
-        entitlementCache.set(guildId, { 
-          hasAccess: true, checkedAt: Date.now(), grantedBy: interaction.user.id,
-          grantedAt: new Date().toISOString(), permanent: true
-        });
-        
-        if (redis) {
-          await redis.set(`${REDIS_PREFIX}premium:${guildId}`, JSON.stringify({
-            grantedBy: interaction.user.id, grantedAt: new Date().toISOString(), permanent: true
-          }));
-        }
-        
-        const guild = client.guilds.cache.get(guildId);
-        return interaction.reply({ content: `✅ Granted premium to **${guild?.name || 'Unknown'}** (\`${guildId}\`)`, ephemeral: true });
-      }
-      
-      // /revoke-premium - Revoke premium from guild
-      if (commandName === 'revoke-premium') {
-        if (!isOwner) return interaction.reply({ content: "❌ Owner only command.", ephemeral: true });
-        
-        const guildId = interaction.options.getString('guild_id');
-        entitlementCache.delete(guildId);
-        if (redis) await redis.del(`${REDIS_PREFIX}premium:${guildId}`);
-        
-        const guild = client.guilds.cache.get(guildId);
-        return interaction.reply({ content: `✅ Revoked premium from **${guild?.name || 'Unknown'}** (\`${guildId}\`)`, ephemeral: true });
-      }
       
       // /premium-list - List premium guilds
       if (commandName === 'premium-list') {
