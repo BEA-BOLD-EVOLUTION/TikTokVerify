@@ -832,21 +832,17 @@ client.once(Events.ClientReady, async (c) => {
     console.log('[Config] Premium Guilds: None');
   }
   
-  // Register slash commands
+  // Register slash commands (per-guild only to avoid duplicates)
   try {
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     const commandsJson = slashCommands.map(cmd => cmd.toJSON());
     
-    // Register globally (can take up to 1 hour to propagate)
-    console.log('[Slash] Registering global slash commands...');
-    await rest.put(
-      Routes.applicationCommands(c.user.id),
-      { body: commandsJson }
-    );
-    console.log('[Slash] Global commands registered');
+    // Clear global commands to remove duplicates
+    console.log('[Slash] Clearing global commands...');
+    await rest.put(Routes.applicationCommands(c.user.id), { body: [] });
     
-    // Also register to each guild for instant availability
-    console.log(`[Slash] Registering to ${c.guilds.cache.size} guilds for instant availability...`);
+    // Register to each guild for instant availability
+    console.log(`[Slash] Registering to ${c.guilds.cache.size} guilds...`);
     for (const guild of c.guilds.cache.values()) {
       try {
         await rest.put(
