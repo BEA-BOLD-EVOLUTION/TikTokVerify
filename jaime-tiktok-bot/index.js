@@ -1,5 +1,6 @@
 require('dotenv').config();
 const fs = require('fs');
+const fsPromises = require('fs').promises;
 const path = require('path');
 const Redis = require('ioredis');
 const {
@@ -28,11 +29,15 @@ const client = new Client({
   partials: [Partials.Channel],
 });
 
-const VERIFIED_ROLE_ID = process.env.VERIFIED_ROLE_ID;
+// VERIFIED_ROLE_ID is now stored per-guild in guild-config.json
 const SKU_ID = process.env.SKU_ID; // Your subscription SKU ID (set in Railway, not in code)
 const BOT_OWNER_ID = process.env.BOT_OWNER_ID; // Bot owner's Discord user ID (set in Railway, not in code)
 const VERIFIED_USERS_FILE = path.join(__dirname, 'verified-users.json');
 const PENDING_VERIFICATIONS_FILE = path.join(__dirname, 'pending-verifications.json');
+const GUILD_CONFIG_FILE = path.join(__dirname, 'guild-config.json');
+
+// In-memory cache for guild configurations: { guildId: { verifiedRoleId: string } }
+const guildConfigs = new Map();
 
 // Premium guilds from environment
 // Format: PREMIUM_GUILDS=id:name,id:name  OR just  PREMIUM_GUILDS=id,id
@@ -70,6 +75,46 @@ if (process.env.REDIS_URL) {
 
 // In-memory store of pending verifications: { discordId: { username, code, previousCodes, guildId } }
 const pendingVerifications = new Map();
+
+// Load guild configurations from file (async)
+async function loadGuildConfigs() {
+  try {
+    if (fs.existsSync(GUILD_CONFIG_FILE)) {
+      const data = await fsPromises.readFile(GUILD_CONFIG_FILE, 'utf8');
+      const configs = JSON.parse(data);
+      for (const [guildId, config] of Object.entries(configs)) {
+        guildConfigs.set(guildId, config);
+      }
+      console.log(`[Config] Loaded configurations for ${guildConfigs.size} guilds`);
+    }
+  } catch (err) {
+    console.error('[Config] Error loading guild configs:', err);
+  }
+}
+
+// Save guild configurations to file (async)
+async function saveGuildConfigs() {
+  try {
+    const configs = Object.fromEntries(guildConfigs);
+    await fsPromises.writeFile(GUILD_CONFIG_FILE, JSON.stringify(configs, null, 2));
+  } catch (err) {
+    console.error('[Config] Error saving guild configs:', err);
+  }
+}
+
+// Get verified role ID for a guild
+function getVerifiedRoleId(guildId) {
+  const config = guildConfigs.get(guildId);
+  return config?.verifiedRoleId || null;
+}
+
+// Set verified role ID for a guild
+async function setVerifiedRoleId(guildId, roleId) {
+  const config = guildConfigs.get(guildId) || {};
+  config.verifiedRoleId = roleId;
+  guildConfigs.set(guildId, config);
+  await saveGuildConfigs();
+}
 
 // Track users currently in active verification polling (to prevent multiple loops)
 const activeVerifications = new Set();
@@ -243,7 +288,7 @@ async function loadPendingVerifications() {
   }
 }
 
-// Save pending verifications (to Redis and file)
+// Save pending verifications (to Redis and file) - async
 async function savePendingVerifications() {
   // Save to Redis if available
   if (redis) {
@@ -251,10 +296,10 @@ async function savePendingVerifications() {
     return;
   }
   
-  // Fallback: save to file
+  // Fallback: save to file (async)
   try {
     const obj = Object.fromEntries(pendingVerifications);
-    fs.writeFileSync(PENDING_VERIFICATIONS_FILE, JSON.stringify(obj, null, 2));
+    await fsPromises.writeFile(PENDING_VERIFICATIONS_FILE, JSON.stringify(obj, null, 2));
   } catch (err) {
     console.error('Error saving pending verifications to file:', err);
   }
@@ -292,11 +337,11 @@ async function removePendingVerification(discordId) {
   }
 }
 
-// Load verified users from file
-function loadVerifiedUsers() {
+// Load verified users from file (async)
+async function loadVerifiedUsers() {
   try {
     if (fs.existsSync(VERIFIED_USERS_FILE)) {
-      const data = fs.readFileSync(VERIFIED_USERS_FILE, 'utf8');
+      const data = await fsPromises.readFile(VERIFIED_USERS_FILE, 'utf8');
       return JSON.parse(data);
     }
   } catch (err) {
@@ -305,18 +350,18 @@ function loadVerifiedUsers() {
   return {};
 }
 
-// Save verified users to file
-function saveVerifiedUsers(users) {
+// Save verified users to file (async)
+async function saveVerifiedUsers(users) {
   try {
-    fs.writeFileSync(VERIFIED_USERS_FILE, JSON.stringify(users, null, 2));
+    await fsPromises.writeFile(VERIFIED_USERS_FILE, JSON.stringify(users, null, 2));
   } catch (err) {
     console.error('Error saving verified users:', err);
   }
 }
 
-// Add a verified user
-function addVerifiedUser(guildId, discordId, discordTag, tiktokUsername) {
-  const users = loadVerifiedUsers();
+// Add a verified user (async)
+async function addVerifiedUser(guildId, discordId, discordTag, tiktokUsername) {
+  const users = await loadVerifiedUsers();
   if (!users[guildId]) {
     users[guildId] = [];
   }
@@ -336,27 +381,27 @@ function addVerifiedUser(guildId, discordId, discordTag, tiktokUsername) {
     users[guildId].push(userData);
   }
   
-  saveVerifiedUsers(users);
+  await saveVerifiedUsers(users);
 }
 
-// Remove a verified user
-function removeVerifiedUser(guildId, discordId) {
-  const users = loadVerifiedUsers();
+// Remove a verified user (async)
+async function removeVerifiedUser(guildId, discordId) {
+  const users = await loadVerifiedUsers();
   if (!users[guildId]) return false;
   
   const index = users[guildId].findIndex(u => u.discordId === discordId);
   if (index >= 0) {
     const removed = users[guildId].splice(index, 1)[0];
-    saveVerifiedUsers(users);
+    await saveVerifiedUsers(users);
     console.log(`[UNVERIFY] Removed ${removed.discordTag} (${discordId}) | TikTok: @${removed.tiktokUsername} | Guild: ${guildId}`);
     return true;
   }
   return false;
 }
 
-// Get verified users for a guild
-function getVerifiedUsers(guildId) {
-  const users = loadVerifiedUsers();
+// Get verified users for a guild (async)
+async function getVerifiedUsers(guildId) {
+  const users = await loadVerifiedUsers();
   return users[guildId] || [];
 }
 
@@ -425,7 +470,15 @@ async function fetchTikTokBio(username, attemptNum = 0) {
   const url = `https://www.tiktok.com/@${cleanUser}?_cb=${cacheBuster}`;
 
   try {
-    const res = await fetch(url, { headers });
+    // Add timeout using AbortController (10 second timeout)
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    
+    const res = await fetch(url, { 
+      headers,
+      signal: controller.signal 
+    });
+    clearTimeout(timeout);
 
     if (!res.ok) {
       console.error(`Attempt ${attemptNum + 1}: Failed to fetch TikTok profile: ${res.status}`);
@@ -709,16 +762,22 @@ async function runBackgroundVerificationCheck() {
             continue;
           }
 
-          const role = guild.roles.cache.get(VERIFIED_ROLE_ID);
+          const roleId = getVerifiedRoleId(record.guildId);
+          if (!roleId) {
+            console.log(`[Background Verify] No verified role configured for guild ${record.guildId}`);
+            continue;
+          }
+          
+          const role = guild.roles.cache.get(roleId);
           if (!role) {
-            console.log(`[Background Verify] Could not find verified role`);
+            console.log(`[Background Verify] Could not find verified role ${roleId}`);
             continue;
           }
 
           await member.roles.add(role);
 
           // Save to verified users list
-          addVerifiedUser(record.guildId, discordId, member.user.tag, record.username);
+          await addVerifiedUser(record.guildId, discordId, member.user.tag, record.username);
 
           // Remove from pending
           pendingVerifications.delete(discordId);
@@ -780,6 +839,10 @@ const slashCommands = [
     .setName('setup-verify')
     .setDescription('Create the TikTok verification panel in this channel'),
   new SlashCommandBuilder()
+    .setName('set-verified-role')
+    .setDescription('Set the role given to verified users')
+    .addRoleOption(option => option.setName('role').setDescription('Role to give verified users').setRequired(true)),
+  new SlashCommandBuilder()
     .setName('verified-list')
     .setDescription('Show all verified users in this server'),
   new SlashCommandBuilder()
@@ -821,6 +884,9 @@ const slashCommands = [
 client.once(Events.ClientReady, async (c) => {
   console.log(`Logged in as ${c.user.tag}`);
   console.log(`[Config] Bot Owner ID: ${BOT_OWNER_ID || 'NOT SET'}`);
+  
+  // Load guild configurations
+  await loadGuildConfigs();
   
   // Log premium guilds with names
   if (PREMIUM_GUILDS.size > 0) {
@@ -908,6 +974,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return interaction.reply({ ...getSubscriptionMessage(), ephemeral: true });
         }
         
+        // Check if verified role is configured
+        const roleId = getVerifiedRoleId(interaction.guild.id);
+        if (!roleId) {
+          return interaction.reply({ 
+            content: "❌ Please set a verified role first using `/set-verified-role`.", 
+            ephemeral: true 
+          });
+        }
+        
         const verifyButton = new ButtonBuilder()
           .setCustomId('verify_tiktok_start')
           .setLabel('Verify TikTok')
@@ -922,13 +997,28 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.reply({ content: '✅ Verification panel created!', ephemeral: true });
       }
       
+      // /set-verified-role - Set the verified role
+      if (commandName === 'set-verified-role') {
+        if (!isAdmin) {
+          return interaction.reply({ content: "❌ You need Administrator permission or Mods/Admins role.", ephemeral: true });
+        }
+        
+        const role = interaction.options.getRole('role');
+        await setVerifiedRoleId(interaction.guild.id, role.id);
+        
+        return interaction.reply({ 
+          content: `✅ Verified role set to ${role}. Users who complete verification will receive this role.`, 
+          ephemeral: true 
+        });
+      }
+      
       // /verified-list - Show verified users
       if (commandName === 'verified-list') {
         if (!isAdmin) {
           return interaction.reply({ content: "❌ You need Administrator permission or Mods/Admins role.", ephemeral: true });
         }
         
-        const verifiedUsers = getVerifiedUsers(interaction.guild.id);
+        const verifiedUsers = await getVerifiedUsers(interaction.guild.id);
         if (verifiedUsers.length === 0) {
           return interaction.reply({ content: '📋 No verified users yet.', ephemeral: true });
         }
@@ -958,7 +1048,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return interaction.reply({ content: "❌ You need Administrator permission or Mods/Admins role.", ephemeral: true });
         }
         
-        const verifiedUsers = getVerifiedUsers(interaction.guild.id);
+        const verifiedUsers = await getVerifiedUsers(interaction.guild.id);
         if (verifiedUsers.length === 0) {
           return interaction.reply({ content: '📋 No verified users to export.', ephemeral: true });
         }
@@ -985,9 +1075,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
         
         try {
           const member = await interaction.guild.members.fetch(targetUser.id);
-          const role = interaction.guild.roles.cache.get(VERIFIED_ROLE_ID);
-          if (role) await member.roles.add(role);
-          addVerifiedUser(interaction.guild.id, targetUser.id, targetUser.tag, tiktokUsername);
+          
+          const roleId = getVerifiedRoleId(interaction.guild.id);
+          if (roleId) {
+            const role = interaction.guild.roles.cache.get(roleId);
+            if (role) await member.roles.add(role);
+          }
+          
+          await addVerifiedUser(interaction.guild.id, targetUser.id, targetUser.tag, tiktokUsername);
           return interaction.reply({ content: `✅ Manually verified **${targetUser.tag}** as **@${tiktokUsername}**`, ephemeral: true });
         } catch (err) {
           return interaction.reply({ content: `❌ Error: ${err.message}`, ephemeral: true });
@@ -1121,18 +1216,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
         
         const targetUser = interaction.options.getUser('user');
-        const verifiedUsers = getVerifiedUsers(interaction.guild.id);
+        const verifiedUsers = await getVerifiedUsers(interaction.guild.id);
         const userData = verifiedUsers.find(u => u.discordId === targetUser.id);
         
         if (!userData) {
           return interaction.reply({ content: `❌ **${targetUser.tag}** is not verified.`, ephemeral: true });
         }
         
-        removeVerifiedUser(interaction.guild.id, targetUser.id);
+        await removeVerifiedUser(interaction.guild.id, targetUser.id);
         
         try {
           const member = await interaction.guild.members.fetch(targetUser.id);
-          const role = interaction.guild.roles.cache.get(VERIFIED_ROLE_ID);
+          const roleId = getVerifiedRoleId(interaction.guild.id);
+          const role = roleId ? interaction.guild.roles.cache.get(roleId) : null;
           if (role && member.roles.cache.has(role.id)) await member.roles.remove(role);
         } catch {}
         
@@ -1459,17 +1555,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
             if (redis) {
               await redisDeletePending(interaction.user.id);
             } else {
-              savePendingVerifications();
+              await savePendingVerifications();
             }
 
             const member = await interaction.guild.members.fetch(
               interaction.user.id,
             );
-            const role = interaction.guild.roles.cache.get(VERIFIED_ROLE_ID);
+            const roleId = getVerifiedRoleId(interaction.guild.id);
+            const role = roleId ? interaction.guild.roles.cache.get(roleId) : null;
 
             if (!role) {
               await interaction.editReply(
-                'I verified your TikTok, but the Verified role is not configured correctly. Please contact a mod.',
+                'I verified your TikTok, but the Verified role is not configured. Please ask an admin to use `/set-verified-role`.',
               );
               return;
             }
@@ -1477,7 +1574,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             await member.roles.add(role);
 
             // Save to verified users list
-            addVerifiedUser(
+            await addVerifiedUser(
               interaction.guild.id,
               interaction.user.id,
               interaction.user.tag,
