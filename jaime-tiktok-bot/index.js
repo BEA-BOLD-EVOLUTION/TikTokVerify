@@ -794,17 +794,34 @@ const slashCommands = [
 client.once(Events.ClientReady, async (c) => {
   console.log(`Logged in as ${c.user.tag}`);
   
-  // Register slash commands globally
+  // Register slash commands
   try {
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-    console.log('[Slash] Registering slash commands...');
+    const commandsJson = slashCommands.map(cmd => cmd.toJSON());
     
+    // Register globally (can take up to 1 hour to propagate)
+    console.log('[Slash] Registering global slash commands...');
     await rest.put(
       Routes.applicationCommands(c.user.id),
-      { body: slashCommands.map(cmd => cmd.toJSON()) }
+      { body: commandsJson }
     );
+    console.log('[Slash] Global commands registered');
     
-    console.log('[Slash] Successfully registered slash commands');
+    // Also register to each guild for instant availability
+    console.log(`[Slash] Registering to ${c.guilds.cache.size} guilds for instant availability...`);
+    for (const guild of c.guilds.cache.values()) {
+      try {
+        await rest.put(
+          Routes.applicationGuildCommands(c.user.id, guild.id),
+          { body: commandsJson }
+        );
+        console.log(`[Slash] Registered to guild: ${guild.name}`);
+      } catch (guildErr) {
+        console.error(`[Slash] Failed to register to ${guild.name}:`, guildErr.message);
+      }
+    }
+    
+    console.log('[Slash] All commands registered successfully');
   } catch (err) {
     console.error('[Slash] Error registering commands:', err);
   }
