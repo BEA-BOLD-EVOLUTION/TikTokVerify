@@ -1417,15 +1417,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
           if (previousCodes.length > 5) previousCodes.pop();
         }
         
-        // Store code in memory temporarily (NOT in pending yet - only after they submit username)
-        const tempData = {
+        // Store the code for this user with previous codes
+        const pendingData = {
           code,
           previousCodes,
           guildId: interaction.guild.id,
         };
-        // Store in a temporary map, not pendingVerifications
-        if (!global.tempVerificationCodes) global.tempVerificationCodes = new Map();
-        global.tempVerificationCodes.set(interaction.user.id, tempData);
+        pendingVerifications.set(interaction.user.id, pendingData);
+        if (redis) {
+          await redisSavePending(interaction.user.id, pendingData);
+        } else {
+          savePendingVerifications();
+        }
 
         // Show code and button to continue
         const continueButton = new ButtonBuilder()
@@ -1444,16 +1447,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       // Button: user says they added the code, now ask for profile link
       if (interaction.customId === 'verify_tiktok_added') {
-        // Check temp storage first, then pending
-        let record = null;
-        if (global.tempVerificationCodes && global.tempVerificationCodes.has(interaction.user.id)) {
-          record = global.tempVerificationCodes.get(interaction.user.id);
-        }
-        
-        // Also check pending in case they're returning
-        if (!record) {
-          record = pendingVerifications.get(interaction.user.id);
-        }
+        let record = pendingVerifications.get(interaction.user.id);
         if (!record && redis) {
           record = await redisGetPending(interaction.user.id);
           if (record) pendingVerifications.set(interaction.user.id, record);
@@ -1710,17 +1704,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
         }
 
-        // Get record from temp storage first, then pending
-        let record = null;
-        if (global.tempVerificationCodes && global.tempVerificationCodes.has(interaction.user.id)) {
-          record = global.tempVerificationCodes.get(interaction.user.id);
-          // Clear from temp storage
-          global.tempVerificationCodes.delete(interaction.user.id);
-        }
-        
-        if (!record) {
-          record = pendingVerifications.get(interaction.user.id);
-        }
+        let record = pendingVerifications.get(interaction.user.id);
         if (!record && redis) {
           record = await redisGetPending(interaction.user.id);
           if (record) pendingVerifications.set(interaction.user.id, record);
@@ -1732,9 +1716,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
         }
 
-        // NOW add username and save to pending (first time in pending!)
+        // Update record with username
         record.username = username;
-        record.createdAt = Date.now(); // Track when they actually submitted
         pendingVerifications.set(interaction.user.id, record);
         if (redis) {
           await redisSavePending(interaction.user.id, record);
