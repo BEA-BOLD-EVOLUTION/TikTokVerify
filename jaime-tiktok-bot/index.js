@@ -1067,20 +1067,25 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return interaction.reply({ content: "❌ You need Administrator permission or Mods/Admins role.", ephemeral: true });
         }
         
-        const verifiedUsers = await getVerifiedUsers(interaction.guild.id);
-        if (verifiedUsers.length === 0) {
-          return interaction.reply({ content: '📋 No verified users to export.', ephemeral: true });
+        try {
+          const verifiedUsers = await getVerifiedUsers(interaction.guild.id);
+          if (verifiedUsers.length === 0) {
+            return interaction.reply({ content: '📋 No verified users to export.', ephemeral: true });
+          }
+          
+          const csv = 'Discord ID,Discord Tag,TikTok Username,Verified At\n' + 
+            verifiedUsers.map(u => `${u.discordId},${u.discordTag},@${u.tiktokUsername},${u.verifiedAt}`).join('\n');
+          const buffer = Buffer.from(csv, 'utf8');
+          
+          return interaction.reply({
+            content: `📊 Exported ${verifiedUsers.length} verified users:`,
+            files: [{ attachment: buffer, name: `verified-users-${interaction.guild.id}.csv` }],
+            ephemeral: true
+          });
+        } catch (err) {
+          console.error('[verified-export] Error:', err);
+          return interaction.reply({ content: `❌ Error exporting users: ${err.message}`, ephemeral: true });
         }
-        
-        const csv = 'Discord ID,Discord Tag,TikTok Username,Verified At\n' + 
-          verifiedUsers.map(u => `${u.discordId},${u.discordTag},@${u.tiktokUsername},${u.verifiedAt}`).join('\n');
-        const buffer = Buffer.from(csv, 'utf8');
-        
-        return interaction.reply({
-          content: `📊 Exported ${verifiedUsers.length} verified users:`,
-          files: [{ attachment: buffer, name: `verified-users-${interaction.guild.id}.csv` }],
-          ephemeral: true
-        });
       }
       
       // /manual-verify - Manually verify a user
