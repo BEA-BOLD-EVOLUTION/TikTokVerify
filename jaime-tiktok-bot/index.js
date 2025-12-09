@@ -309,7 +309,7 @@ async function loadPendingVerifications() {
   // Fallback to file
   try {
     if (fs.existsSync(PENDING_VERIFICATIONS_FILE)) {
-      const data = fs.readFileSync(PENDING_VERIFICATIONS_FILE, 'utf8');
+      const data = await fsPromises.readFile(PENDING_VERIFICATIONS_FILE, 'utf8');
       const parsed = JSON.parse(data);
       for (const [key, value] of Object.entries(parsed)) {
         pendingVerifications.set(key, value);
@@ -915,9 +915,6 @@ function startBackgroundVerificationScheduler() {
   console.log('[Background Verify] Scheduler started - will check every 2 hours');
 }
 
-// Load pending verifications from file before connecting
-loadPendingVerifications();
-
 // Slash command definitions
 const slashCommands = [
   new SlashCommandBuilder()
@@ -972,6 +969,9 @@ client.once(Events.ClientReady, async (c) => {
   
   // Load guild configurations
   await loadGuildConfigs();
+  
+  // Load pending verifications
+  await loadPendingVerifications();
   
   // Log premium guilds with names
   if (PREMIUM_GUILDS.size > 0) {
