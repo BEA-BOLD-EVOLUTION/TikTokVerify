@@ -34,9 +34,19 @@ const BOT_OWNER_ID = process.env.BOT_OWNER_ID; // Bot owner's Discord user ID (s
 const VERIFIED_USERS_FILE = path.join(__dirname, 'verified-users.json');
 const PENDING_VERIFICATIONS_FILE = path.join(__dirname, 'pending-verifications.json');
 
-// Premium guilds from environment (comma-separated list of guild IDs)
-// Set PREMIUM_GUILDS=123456789,987654321 in Railway to grant free access
-const PREMIUM_GUILDS = process.env.PREMIUM_GUILDS ? process.env.PREMIUM_GUILDS.split(',').map(id => id.trim()) : [];
+// Premium guilds from environment
+// Format: PREMIUM_GUILDS=id:name,id:name  OR just  PREMIUM_GUILDS=id,id
+// Example: PREMIUM_GUILDS=1339312549753262140:Jaime,123456789:TestServer
+const PREMIUM_GUILDS_RAW = process.env.PREMIUM_GUILDS ? process.env.PREMIUM_GUILDS.split(',').map(entry => entry.trim()) : [];
+const PREMIUM_GUILDS = new Map();
+for (const entry of PREMIUM_GUILDS_RAW) {
+  if (entry.includes(':')) {
+    const [id, name] = entry.split(':');
+    PREMIUM_GUILDS.set(id.trim(), name.trim());
+  } else {
+    PREMIUM_GUILDS.set(entry.trim(), 'Unknown');
+  }
+}
 
 // Redis connection (optional - falls back to file storage if not configured)
 let redis = null;
@@ -79,8 +89,9 @@ async function checkGuildEntitlement(guildId) {
   }
   
   // Check if guild is in PREMIUM_GUILDS environment variable
-  if (PREMIUM_GUILDS.includes(guildId)) {
-    console.log(`[Entitlement] Guild ${guildId} has env-based premium access`);
+  if (PREMIUM_GUILDS.has(guildId)) {
+    const guildLabel = PREMIUM_GUILDS.get(guildId);
+    console.log(`[Entitlement] Guild ${guildId} (${guildLabel}) has env-based premium access`);
     return true;
   }
   
@@ -818,7 +829,16 @@ const slashCommands = [
 client.once(Events.ClientReady, async (c) => {
   console.log(`Logged in as ${c.user.tag}`);
   console.log(`[Config] Bot Owner ID: ${BOT_OWNER_ID || 'NOT SET'}`);
-  console.log(`[Config] Premium Guilds from env: ${PREMIUM_GUILDS.length > 0 ? PREMIUM_GUILDS.join(', ') : 'None'}`);
+  
+  // Log premium guilds with names
+  if (PREMIUM_GUILDS.size > 0) {
+    console.log(`[Config] Premium Guilds (${PREMIUM_GUILDS.size}):`);
+    for (const [guildId, name] of PREMIUM_GUILDS.entries()) {
+      console.log(`  - ${name}: ${guildId}`);
+    }
+  } else {
+    console.log('[Config] Premium Guilds: None');
+  }
   
   // Register slash commands
   try {
