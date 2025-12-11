@@ -240,7 +240,7 @@ function getSubscriptionMessage() {
 async function redisSavePending(userId, data) {
   if (!redis) return false;
   try {
-    await redis.set(`${REDIS_PREFIX}pending:${userId}`, JSON.stringify(data), 'EX', 86400); // 24 hour expiry
+    await redis.set(`${REDIS_PREFIX}pending:${userId}`, JSON.stringify(data)); // No expiry - permanent
     return true;
   } catch (err) {
     console.error('[Redis] Save error:', err.message);
