@@ -19,6 +19,7 @@ const {
   SlashCommandBuilder,
   REST,
   Routes,
+  AttachmentBuilder,
 } = require('discord.js');
 
 const client = new Client({
@@ -75,6 +76,66 @@ if (process.env.REDIS_URL) {
 
 // In-memory store of pending verifications: { discordId: { username, code, previousCodes, guildId } }
 const pendingVerifications = new Map();
+
+// Verification log entry structure:
+// {
+//   discordId, discordName, tiktokUsername, code,
+//   status: 'pending' | 'verified' | 'stale' | 'manual',
+//   initiatedAt, verifiedAt (optional)
+// }
+
+// Save a verification log entry to Redis
+async function saveVerificationLog(guildId, discordId, entry) {
+  if (!redis) return false;
+  try {
+    // Get existing logs for this guild
+    const key = `${REDIS_PREFIX}log:${guildId}`;
+    const existing = await redis.get(key);
+    const logs = existing ? JSON.parse(existing) : {};
+    
+    // Update or add entry
+    logs[discordId] = entry;
+    
+    await redis.set(key, JSON.stringify(logs));
+    console.log(`[VERIFY LOG] Saved ${entry.status} for ${entry.discordName} (@${entry.tiktokUsername}) in guild ${guildId}`);
+    return true;
+  } catch (err) {
+    console.error('[VERIFY LOG] Save error:', err.message);
+    return false;
+  }
+}
+
+// Get all verification logs for a guild
+async function getVerificationLogs(guildId) {
+  if (!redis) return {};
+  try {
+    const key = `${REDIS_PREFIX}log:${guildId}`;
+    const data = await redis.get(key);
+    return data ? JSON.parse(data) : {};
+  } catch (err) {
+    console.error('[VERIFY LOG] Get error:', err.message);
+    return {};
+  }
+}
+
+// Update verification status (pending -> verified/stale)
+async function updateVerificationStatus(guildId, discordId, status, verifiedAt = null) {
+  if (!redis) return false;
+  try {
+    const logs = await getVerificationLogs(guildId);
+    if (logs[discordId]) {
+      logs[discordId].status = status;
+      if (verifiedAt) logs[discordId].verifiedAt = verifiedAt;
+      await redis.set(`${REDIS_PREFIX}log:${guildId}`, JSON.stringify(logs));
+      console.log(`[VERIFY LOG] Updated ${discordId} to ${status}`);
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.error('[VERIFY LOG] Update error:', err.message);
+    return false;
+  }
+}
 
 // Load guild configurations from file (async)
 async function loadGuildConfigs() {
@@ -979,6 +1040,20 @@ const slashCommands = [
   new SlashCommandBuilder()
     .setName('redis-check')
     .setDescription('Check Redis storage status (owner only)'),
+  new SlashCommandBuilder()
+    .setName('verification-log')
+    .setDescription('View all verification activity')
+    .addStringOption(option => option.setName('status').setDescription('Filter by status').setRequired(false)
+      .addChoices(
+        { name: 'All', value: 'all' },
+        { name: 'Pending', value: 'pending' },
+        { name: 'Verified', value: 'verified' },
+        { name: 'Manual', value: 'manual' },
+        { name: 'Stale (>24h)', value: 'stale' }
+      )),
+  new SlashCommandBuilder()
+    .setName('export-log')
+    .setDescription('Export verification log as CSV'),
 ];
 
 // When bot is ready
@@ -1192,6 +1267,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
           }
           
           await addVerifiedUser(interaction.guild.id, targetUser.id, targetUser.tag, tiktokUsername);
+          
+          // Log manual verification
+          await saveVerificationLog(interaction.guild.id, targetUser.id, {
+            discordId: targetUser.id,
+            discordName: targetUser.tag,
+            tiktokUsername: tiktokUsername,
+            code: 'MANUAL',
+            status: 'manual',
+            initiatedAt: new Date().toISOString(),
+            verifiedAt: new Date().toISOString(),
+            verifiedBy: interaction.user.tag,
+          });
+          
           return interaction.reply({ content: `✅ Manually verified **${targetUser.tag}** as **@${tiktokUsername}**`, ephemeral: true });
         } catch (err) {
           return interaction.reply({ content: `❌ Error: ${err.message}`, ephemeral: true });
@@ -1510,6 +1598,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           const verifiedKeys = await redis.keys(`${REDIS_PREFIX}verified:*`);
           const configKeys = await redis.keys(`${REDIS_PREFIX}config:*`);
           const premiumKeys = await redis.keys(`${REDIS_PREFIX}premium:*`);
+          const logKeys = await redis.keys(`${REDIS_PREFIX}log:*`);
           
           // Get sample data
           let pendingSample = [];
@@ -1531,6 +1620,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
             }
           }
           
+          let logEntryCount = 0;
+          for (const key of logKeys) {
+            const data = await redis.get(key);
+            if (data) {
+              const parsed = JSON.parse(data);
+              logEntryCount += Object.keys(parsed).length;
+            }
+          }
+          
           const embed = new EmbedBuilder()
             .setTitle('🔴 Redis Status')
             .setColor(0x43b581)
@@ -1539,6 +1637,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
               { name: '📊 Storage Stats', value: 
                 `**Pending Verifications:** ${pendingKeys.length} users\n` +
                 `**Verified Users:** ${verifiedCount} across ${verifiedKeys.length} guilds\n` +
+                `**Verification Log:** ${logEntryCount} entries across ${logKeys.length} guilds\n` +
                 `**Guild Configs:** ${configKeys.length}\n` +
                 `**Premium Grants:** ${premiumKeys.length}`, inline: false },
               { name: '🔍 Sample Pending', value: pendingSample.length > 0 ? pendingSample.join('\n') : '*None*', inline: false },
@@ -1553,6 +1652,108 @@ client.on(Events.InteractionCreate, async (interaction) => {
         } catch (err) {
           return interaction.editReply(`❌ **Redis Error:** ${err.message}`);
         }
+      }
+      
+      // /verification-log - View all verification activity
+      if (commandName === 'verification-log') {
+        if (!isAdmin) {
+          return interaction.reply({ content: "❌ You need Administrator permission or Mods/Admins role.", ephemeral: true });
+        }
+        
+        await interaction.deferReply({ ephemeral: true });
+        
+        const statusFilter = interaction.options.getString('status') || 'all';
+        const logs = await getVerificationLogs(interaction.guild.id);
+        
+        let entries = Object.values(logs);
+        
+        // Mark stale entries
+        const now = Date.now();
+        entries = entries.map(e => {
+          if (e.status === 'pending' && e.initiatedAt) {
+            const elapsed = now - new Date(e.initiatedAt).getTime();
+            if (elapsed > 24 * 60 * 60 * 1000) {
+              return { ...e, status: 'stale' };
+            }
+          }
+          return e;
+        });
+        
+        // Filter by status
+        if (statusFilter !== 'all') {
+          entries = entries.filter(e => e.status === statusFilter);
+        }
+        
+        // Sort by date (newest first)
+        entries.sort((a, b) => new Date(b.initiatedAt) - new Date(a.initiatedAt));
+        
+        if (entries.length === 0) {
+          return interaction.editReply(`📋 No verification entries found${statusFilter !== 'all' ? ` with status "${statusFilter}"` : ''}.`);
+        }
+        
+        const statusEmoji = { pending: '⏳', verified: '✅', manual: '🔧', stale: '⚠️' };
+        
+        const embed = new EmbedBuilder()
+          .setTitle('📋 Verification Log')
+          .setColor(0x3498db)
+          .setDescription(`Total: **${entries.length}** entries${statusFilter !== 'all' ? ` (filtered: ${statusFilter})` : ''}`)
+          .setTimestamp();
+        
+        const logList = entries.slice(0, 15).map((e, i) => {
+          const emoji = statusEmoji[e.status] || '❓';
+          const date = e.initiatedAt ? new Date(e.initiatedAt).toLocaleDateString() : 'Unknown';
+          return `${emoji} **${e.discordName}** → @${e.tiktokUsername}\n   Code: \`${e.code}\` | ${date}`;
+        }).join('\n\n');
+        
+        embed.addFields({ name: 'Recent Activity', value: logList });
+        if (entries.length > 15) embed.setFooter({ text: `Showing 15 of ${entries.length} entries. Use /export-log for full CSV.` });
+        
+        return interaction.editReply({ embeds: [embed] });
+      }
+      
+      // /export-log - Export verification log as CSV
+      if (commandName === 'export-log') {
+        if (!isAdmin) {
+          return interaction.reply({ content: "❌ You need Administrator permission or Mods/Admins role.", ephemeral: true });
+        }
+        
+        await interaction.deferReply({ ephemeral: true });
+        
+        const logs = await getVerificationLogs(interaction.guild.id);
+        let entries = Object.values(logs);
+        
+        // Mark stale entries
+        const now = Date.now();
+        entries = entries.map(e => {
+          if (e.status === 'pending' && e.initiatedAt) {
+            const elapsed = now - new Date(e.initiatedAt).getTime();
+            if (elapsed > 24 * 60 * 60 * 1000) {
+              return { ...e, status: 'stale' };
+            }
+          }
+          return e;
+        });
+        
+        if (entries.length === 0) {
+          return interaction.editReply('📋 No verification entries to export.');
+        }
+        
+        // Sort by date
+        entries.sort((a, b) => new Date(b.initiatedAt) - new Date(a.initiatedAt));
+        
+        // Create CSV
+        const csv = 'Discord ID,Discord Name,TikTok Username,Code,Status,Initiated At,Verified At,Verified By\n' +
+          entries.map(e => 
+            `${e.discordId},"${e.discordName}",@${e.tiktokUsername},${e.code},${e.status},${e.initiatedAt || ''},${e.verifiedAt || ''},${e.verifiedBy || ''}`
+          ).join('\n');
+        
+        const buffer = Buffer.from(csv, 'utf8');
+        const attachment = new AttachmentBuilder(buffer, { name: `verification-log-${interaction.guild.id}.csv` });
+        
+        return interaction.editReply({
+          content: `📊 Exported ${entries.length} verification entries:`,
+          files: [attachment],
+        });
       }
       
       return; // End slash command handling
@@ -1815,6 +2016,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
               interaction.user.tag,
               record.username
             );
+            
+            // Update verification log to verified
+            await updateVerificationStatus(interaction.guild.id, interaction.user.id, 'verified', new Date().toISOString());
 
             await interaction.editReply(
               `🎉 **Verification successful!**\n\nI found the code **${foundCode}** in the bio of **@${record.username}**.\nYou've been given the **Verified Viewer** role.\n\nYou can remove the code from your TikTok bio now. 💀`,
@@ -1908,6 +2112,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (redis) {
           const saved = await redisSavePending(interaction.user.id, pendingData);
           console.log(`[PENDING SAVE] Redis save result: ${saved}`);
+          
+          // Also save to verification log
+          await saveVerificationLog(tempData.guildId, interaction.user.id, {
+            discordId: interaction.user.id,
+            discordName: interaction.user.tag,
+            tiktokUsername: username,
+            code: tempData.code,
+            status: 'pending',
+            initiatedAt: new Date().toISOString(),
+          });
         } else {
           await savePendingVerifications();
           console.log(`[PENDING SAVE] File save completed`);
