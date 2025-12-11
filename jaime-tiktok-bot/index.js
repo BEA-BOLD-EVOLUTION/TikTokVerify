@@ -1450,18 +1450,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
           if (previousCodes.length > 5) previousCodes.pop();
         }
         
-        // Store the code for this user with previous codes
-        const pendingData = {
+        // Store the code temporarily in memory ONLY (not in pending/Redis yet - wait for username)
+        const tempData = {
           code,
           previousCodes,
           guildId: interaction.guild.id,
         };
-        pendingVerifications.set(interaction.user.id, pendingData);
-        if (redis) {
-          await redisSavePending(interaction.user.id, pendingData);
-        } else {
-          savePendingVerifications();
-        }
+        // Use a temporary in-memory map until they enter username
+        if (!global.tempVerificationCodes) global.tempVerificationCodes = new Map();
+        global.tempVerificationCodes.set(interaction.user.id, tempData);
 
         // Show code and button to continue
         const continueButton = new ButtonBuilder()
@@ -1737,26 +1734,34 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
         }
 
-        let record = pendingVerifications.get(interaction.user.id);
-        if (!record && redis) {
-          record = await redisGetPending(interaction.user.id);
-          if (record) pendingVerifications.set(interaction.user.id, record);
-        }
-        if (!record) {
+        // Get the temp code that was generated in step 1
+        if (!global.tempVerificationCodes) global.tempVerificationCodes = new Map();
+        const tempData = global.tempVerificationCodes.get(interaction.user.id);
+        
+        if (!tempData) {
           return interaction.reply({
-            content: 'I could not find a pending verification for you. Please start again.',
+            content: 'I could not find a verification code for you. Please click "Verify TikTok" to start again.',
             ephemeral: true,
           });
         }
-
-        // Update record with username
-        record.username = username;
-        pendingVerifications.set(interaction.user.id, record);
+        
+        // NOW we save to pending with the username included
+        const pendingData = {
+          username: username,
+          code: tempData.code,
+          previousCodes: tempData.previousCodes || [],
+          guildId: tempData.guildId,
+        };
+        
+        pendingVerifications.set(interaction.user.id, pendingData);
         if (redis) {
-          await redisSavePending(interaction.user.id, record);
+          await redisSavePending(interaction.user.id, pendingData);
         } else {
           savePendingVerifications();
         }
+        
+        // Clear temp data
+        global.tempVerificationCodes.delete(interaction.user.id);
 
         const checkButton = new ButtonBuilder()
           .setCustomId('verify_tiktok_check')
@@ -1766,7 +1771,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const row = new ActionRowBuilder().addComponents(checkButton);
 
         await interaction.reply({
-          content: `📋 **Step 2: Verify your profile**\n\nTikTok username: **@${username}**\nVerification code: \`${record.code}\`\n\nMake sure the code is in your bio, then click **"Verify Now"**.\n\n⏳ **Verification may take up to 24 hours** due to TikTok's caching. If not verified immediately, I'll keep checking and **DM you** when it's done!`,
+          content: `📋 **Step 2: Verify your profile**\n\nTikTok username: **@${username}**\nVerification code: \`${pendingData.code}\`\n\nMake sure the code is in your bio, then click **"Verify Now"**.\n\n⏳ **Verification may take up to 24 hours** due to TikTok's caching. If not verified immediately, I'll keep checking and **DM you** when it's done!`,
           components: [row],
           ephemeral: true,
         });
