@@ -976,6 +976,9 @@ const slashCommands = [
     .setName('lookup-code')
     .setDescription('Find a pending verification by code')
     .addStringOption(option => option.setName('code').setDescription('Verification code (e.g., 98986 or JAIME-98986)').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('redis-check')
+    .setDescription('Check Redis storage status (owner only)'),
 ];
 
 // When bot is ready
@@ -1479,6 +1482,70 @@ client.on(Events.InteractionCreate, async (interaction) => {
         embed.addFields({ name: 'Matches', value: matchList });
         
         return interaction.editReply({ embeds: [embed] });
+      }
+      
+      // /redis-check - Check Redis storage status
+      if (commandName === 'redis-check') {
+        if (!isOwner) return interaction.reply({ content: "❌ Owner only command.", ephemeral: true });
+        
+        await interaction.deferReply({ ephemeral: true });
+        
+        if (!redis) {
+          return interaction.editReply('❌ **Redis is not connected.** Using file storage (data will be lost on restart).');
+        }
+        
+        try {
+          // Check connection
+          const pong = await redis.ping();
+          
+          // Count keys by type
+          const pendingKeys = await redis.keys(`${REDIS_PREFIX}pending:*`);
+          const verifiedKeys = await redis.keys(`${REDIS_PREFIX}verified:*`);
+          const configKeys = await redis.keys(`${REDIS_PREFIX}config:*`);
+          const premiumKeys = await redis.keys(`${REDIS_PREFIX}premium:*`);
+          
+          // Get sample data
+          let pendingSample = [];
+          for (const key of pendingKeys.slice(0, 3)) {
+            const data = await redis.get(key);
+            if (data) {
+              const parsed = JSON.parse(data);
+              const userId = key.replace(`${REDIS_PREFIX}pending:`, '');
+              pendingSample.push(`• <@${userId}>: @${parsed.username || 'Unknown'} (${parsed.code || 'no code'})`);
+            }
+          }
+          
+          let verifiedCount = 0;
+          for (const key of verifiedKeys) {
+            const data = await redis.get(key);
+            if (data) {
+              const parsed = JSON.parse(data);
+              verifiedCount += Array.isArray(parsed) ? parsed.length : 0;
+            }
+          }
+          
+          const embed = new EmbedBuilder()
+            .setTitle('🔴 Redis Status')
+            .setColor(0x43b581)
+            .setDescription(`✅ **Connected** (ping: ${pong})`)
+            .addFields(
+              { name: '📊 Storage Stats', value: 
+                `**Pending Verifications:** ${pendingKeys.length} users\n` +
+                `**Verified Users:** ${verifiedCount} across ${verifiedKeys.length} guilds\n` +
+                `**Guild Configs:** ${configKeys.length}\n` +
+                `**Premium Grants:** ${premiumKeys.length}`, inline: false },
+              { name: '🔍 Sample Pending', value: pendingSample.length > 0 ? pendingSample.join('\n') : '*None*', inline: false },
+              { name: '💾 In-Memory Cache', value: 
+                `**pendingVerifications Map:** ${pendingVerifications.size} entries\n` +
+                `**guildConfigs Map:** ${guildConfigs.size} entries\n` +
+                `**tempVerificationCodes:** ${global.tempVerificationCodes?.size || 0} entries`, inline: false }
+            )
+            .setTimestamp();
+          
+          return interaction.editReply({ embeds: [embed] });
+        } catch (err) {
+          return interaction.editReply(`❌ **Redis Error:** ${err.message}`);
+        }
       }
       
       return; // End slash command handling
