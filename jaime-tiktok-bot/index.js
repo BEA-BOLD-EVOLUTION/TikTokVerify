@@ -376,17 +376,17 @@ async function loadVerifiedUsers() {
   if (redis) {
     try {
       const keys = await redis.keys(`${REDIS_PREFIX}verified:*`);
-      if (keys.length > 0) {
-        const users = {};
-        for (const key of keys) {
-          const guildId = key.replace(`${REDIS_PREFIX}verified:`, '');
-          const data = await redis.get(key);
-          if (data) {
-            users[guildId] = JSON.parse(data);
-          }
+      console.log(`[VERIFIED LOAD] Found ${keys.length} guild keys in Redis`);
+      const users = {};
+      for (const key of keys) {
+        const guildId = key.replace(`${REDIS_PREFIX}verified:`, '');
+        const data = await redis.get(key);
+        if (data) {
+          users[guildId] = JSON.parse(data);
+          console.log(`[VERIFIED LOAD] Loaded ${users[guildId].length} users for guild ${guildId}`);
         }
-        return users;
       }
+      return users;
     } catch (err) {
       console.error('[Redis] Error loading verified users:', err.message);
     }
@@ -396,11 +396,13 @@ async function loadVerifiedUsers() {
   try {
     if (fs.existsSync(VERIFIED_USERS_FILE)) {
       const data = await fsPromises.readFile(VERIFIED_USERS_FILE, 'utf8');
+      console.log(`[VERIFIED LOAD] Loaded from file`);
       return JSON.parse(data);
     }
   } catch (err) {
     console.error('Error loading verified users:', err);
   }
+  console.log(`[VERIFIED LOAD] No data found, returning empty`);
   return {};
 }
 
@@ -411,23 +413,30 @@ async function saveVerifiedUsers(users) {
     try {
       for (const [guildId, guildUsers] of Object.entries(users)) {
         await redis.set(`${REDIS_PREFIX}verified:${guildId}`, JSON.stringify(guildUsers));
+        console.log(`[VERIFIED SAVE] Saved ${guildUsers.length} users to Redis for guild ${guildId}`);
       }
     } catch (err) {
       console.error('[Redis] Error saving verified users:', err.message);
     }
   }
   
-  // Also save to file as backup
+  // Also save to file as backup (will fail on Railway but that's OK)
   try {
     await fsPromises.writeFile(VERIFIED_USERS_FILE, JSON.stringify(users, null, 2));
+    console.log(`[VERIFIED SAVE] Saved to file backup`);
   } catch (err) {
-    console.error('Error saving verified users:', err);
+    // File save failing is OK on Railway - Redis is primary
+    console.log(`[VERIFIED SAVE] File backup skipped (read-only filesystem)`);
   }
 }
 
 // Add a verified user (async)
 async function addVerifiedUser(guildId, discordId, discordTag, tiktokUsername) {
+  console.log(`[VERIFIED SAVE] Starting save for ${discordId} (@${tiktokUsername}) in guild ${guildId}`);
+  
   const users = await loadVerifiedUsers();
+  console.log(`[VERIFIED SAVE] Loaded ${Object.keys(users).length} guilds from storage`);
+  
   if (!users[guildId]) {
     users[guildId] = [];
   }
@@ -443,11 +452,14 @@ async function addVerifiedUser(guildId, discordId, discordTag, tiktokUsername) {
   
   if (existing >= 0) {
     users[guildId][existing] = userData;
+    console.log(`[VERIFIED SAVE] Updated existing user`);
   } else {
     users[guildId].push(userData);
+    console.log(`[VERIFIED SAVE] Added new user, guild now has ${users[guildId].length} verified`);
   }
   
   await saveVerifiedUsers(users);
+  console.log(`[VERIFIED SAVE] Save complete for ${discordTag}`);
 }
 
 // Remove a verified user (async)
