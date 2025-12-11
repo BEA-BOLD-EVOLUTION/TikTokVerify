@@ -119,17 +119,33 @@ async function getVerificationLogs(guildId) {
 }
 
 // Update verification status (pending -> verified/stale)
-async function updateVerificationStatus(guildId, discordId, status, verifiedAt = null) {
+// If entry doesn't exist, creates it with available data
+async function updateVerificationStatus(guildId, discordId, status, verifiedAt = null, extraData = {}) {
   if (!redis) return false;
   try {
     const logs = await getVerificationLogs(guildId);
     if (logs[discordId]) {
+      // Update existing entry
       logs[discordId].status = status;
       if (verifiedAt) logs[discordId].verifiedAt = verifiedAt;
+      // Merge any extra data (like discordName, tiktokUsername for backfill)
+      Object.assign(logs[discordId], extraData);
       await redis.set(`${REDIS_PREFIX}log:${guildId}`, JSON.stringify(logs));
       console.log(`[VERIFY LOG] Updated ${discordId} to ${status}`);
       return true;
+    } else if (Object.keys(extraData).length > 0) {
+      // Create new entry if we have data to populate it
+      logs[discordId] = {
+        discordId,
+        status,
+        verifiedAt,
+        ...extraData
+      };
+      await redis.set(`${REDIS_PREFIX}log:${guildId}`, JSON.stringify(logs));
+      console.log(`[VERIFY LOG] Created new entry for ${discordId} with status ${status}`);
+      return true;
     }
+    console.log(`[VERIFY LOG] No entry found for ${discordId} and no extra data provided`);
     return false;
   } catch (err) {
     console.error('[VERIFY LOG] Update error:', err.message);
@@ -936,6 +952,16 @@ async function runBackgroundVerificationCheck() {
 
           // Save to verified users list
           await addVerifiedUser(record.guildId, discordId, member.user.tag, record.username);
+          
+          // Update verification log to verified (background)
+          // Include extra data in case log entry doesn't exist (for legacy pending records)
+          await updateVerificationStatus(record.guildId, discordId, 'verified', new Date().toISOString(), {
+            discordName: member.user.tag,
+            tiktokUsername: record.username,
+            code: matchedCode,
+            initiatedAt: record.createdAt ? new Date(record.createdAt).toISOString() : new Date().toISOString(),
+          });
+          console.log(`[Background Verify] Updated verification log for ${discordId}`);
 
           // Remove from pending
           pendingVerifications.delete(discordId);
@@ -2017,8 +2043,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
               record.username
             );
             
-            // Update verification log to verified
-            await updateVerificationStatus(interaction.guild.id, interaction.user.id, 'verified', new Date().toISOString());
+            // Update verification log to verified (include extra data for safety)
+            await updateVerificationStatus(interaction.guild.id, interaction.user.id, 'verified', new Date().toISOString(), {
+              discordName: interaction.user.tag,
+              tiktokUsername: record.username,
+              code: foundCode,
+              initiatedAt: record.createdAt ? new Date(record.createdAt).toISOString() : new Date().toISOString(),
+            });
 
             await interaction.editReply(
               `🎉 **Verification successful!**\n\nI found the code **${foundCode}** in the bio of **@${record.username}**.\nYou've been given the **Verified Viewer** role.\n\nYou can remove the code from your TikTok bio now. 💀`,
@@ -2112,20 +2143,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (redis) {
           const saved = await redisSavePending(interaction.user.id, pendingData);
           console.log(`[PENDING SAVE] Redis save result: ${saved}`);
-          
-          // Also save to verification log
-          await saveVerificationLog(tempData.guildId, interaction.user.id, {
-            discordId: interaction.user.id,
-            discordName: interaction.user.tag,
-            tiktokUsername: username,
-            code: tempData.code,
-            status: 'pending',
-            initiatedAt: new Date().toISOString(),
-          });
         } else {
           await savePendingVerifications();
           console.log(`[PENDING SAVE] File save completed`);
         }
+        
+        // Always save to verification log (works with or without Redis)
+        await saveVerificationLog(tempData.guildId, interaction.user.id, {
+          discordId: interaction.user.id,
+          discordName: interaction.user.tag,
+          tiktokUsername: username,
+          code: tempData.code,
+          status: 'pending',
+          initiatedAt: new Date().toISOString(),
+        });
         
         console.log(`[PENDING SAVE] pendingVerifications size: ${pendingVerifications.size}`);
         
