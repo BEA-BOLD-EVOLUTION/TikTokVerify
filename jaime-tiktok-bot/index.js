@@ -2322,9 +2322,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
 // Handle role changes - auto-unverify when Verified role is removed
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
   try {
+    // Get the verified role ID for this guild
+    const verifiedRoleId = getVerifiedRoleId(newMember.guild.id);
+    if (!verifiedRoleId) return; // No verified role configured
+    
     // Check if Verified role was removed
-    const hadVerifiedRole = oldMember.roles.cache.has(VERIFIED_ROLE_ID);
-    const hasVerifiedRole = newMember.roles.cache.has(VERIFIED_ROLE_ID);
+    const hadVerifiedRole = oldMember.roles.cache.has(verifiedRoleId);
+    const hasVerifiedRole = newMember.roles.cache.has(verifiedRoleId);
     
     if (hadVerifiedRole && !hasVerifiedRole) {
       // Role was removed - unverify the user
