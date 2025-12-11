@@ -972,6 +972,10 @@ const slashCommands = [
     .setName('check-premium')
     .setDescription('Check premium status of a guild (owner only)')
     .addStringOption(option => option.setName('guild_id').setDescription('Guild ID (defaults to current)').setRequired(false)),
+  new SlashCommandBuilder()
+    .setName('lookup-code')
+    .setDescription('Find a pending verification by code')
+    .addStringOption(option => option.setName('code').setDescription('Verification code (e.g., 98986 or JAIME-98986)').setRequired(true)),
 ];
 
 // When bot is ready
@@ -1424,6 +1428,57 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
         
         return interaction.reply({ embeds: [embed], ephemeral: true });
+      }
+      
+      // /lookup-code - Find pending verification by code
+      if (commandName === 'lookup-code') {
+        if (!isAdmin) {
+          return interaction.reply({ content: "❌ You need Administrator permission or Mods/Admins role.", ephemeral: true });
+        }
+        
+        await interaction.deferReply({ ephemeral: true });
+        
+        let searchCode = interaction.options.getString('code').toUpperCase().trim();
+        // Allow partial code (just numbers) or full code
+        if (!searchCode.includes('-')) {
+          // Try to find it with common prefixes
+          searchCode = searchCode; // Keep as-is, we'll search for partial match
+        }
+        
+        const allPending = await getAllPendingVerifications();
+        const matches = [];
+        
+        for (const [discordId, data] of allPending.entries()) {
+          const code = (data.code || '').toUpperCase();
+          const allCodes = [code, ...(data.previousCodes || []).map(c => c.toUpperCase())];
+          
+          // Check if any code matches (partial or full)
+          for (const c of allCodes) {
+            if (c.includes(searchCode) || searchCode.includes(c.replace(/.*-/, ''))) {
+              matches.push({ discordId, ...data, matchedCode: c });
+              break;
+            }
+          }
+        }
+        
+        if (matches.length === 0) {
+          return interaction.editReply(`❌ No pending verification found with code containing **${searchCode}**`);
+        }
+        
+        const embed = new EmbedBuilder()
+          .setTitle(`🔍 Code Lookup: ${searchCode}`)
+          .setColor(0x3498db)
+          .setDescription(`Found **${matches.length}** match(es)`)
+          .setTimestamp();
+        
+        const matchList = matches.slice(0, 10).map((m, i) => {
+          const username = m.username || 'Unknown';
+          return `**${i + 1}.** <@${m.discordId}>\n   TikTok: @${username}\n   Code: \`${m.matchedCode}\`\n   Guild: \`${m.guildId}\``;
+        }).join('\n\n');
+        
+        embed.addFields({ name: 'Matches', value: matchList });
+        
+        return interaction.editReply({ embeds: [embed] });
       }
       
       return; // End slash command handling
