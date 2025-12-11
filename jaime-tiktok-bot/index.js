@@ -1507,12 +1507,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       if (interaction.customId === 'verify_tiktok_check') {
         // User clicked "I Added the Code"
+        console.log(`[CHECK] User ${interaction.user.id} clicked verify_tiktok_check`);
+        console.log(`[CHECK] pendingVerifications size: ${pendingVerifications.size}`);
+        
         let record = pendingVerifications.get(interaction.user.id);
+        console.log(`[CHECK] Memory record: ${record ? JSON.stringify(record) : 'null'}`);
+        
         if (!record && redis) {
+          console.log(`[CHECK] Checking Redis...`);
           record = await redisGetPending(interaction.user.id);
+          console.log(`[CHECK] Redis record: ${record ? JSON.stringify(record) : 'null'}`);
           if (record) pendingVerifications.set(interaction.user.id, record);
         }
         if (!record) {
+          console.log(`[CHECK] No record found for user ${interaction.user.id}`);
           return interaction.reply({
             content:
               'I could not find a pending verification for you. Please start again.',
@@ -1750,14 +1758,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
           code: tempData.code,
           previousCodes: tempData.previousCodes || [],
           guildId: tempData.guildId,
+          createdAt: Date.now(),
         };
+        
+        console.log(`[PENDING SAVE] User ${interaction.user.id} - Username: ${username}, Code: ${tempData.code}, Guild: ${tempData.guildId}`);
         
         pendingVerifications.set(interaction.user.id, pendingData);
         if (redis) {
-          await redisSavePending(interaction.user.id, pendingData);
+          const saved = await redisSavePending(interaction.user.id, pendingData);
+          console.log(`[PENDING SAVE] Redis save result: ${saved}`);
         } else {
-          savePendingVerifications();
+          await savePendingVerifications();
+          console.log(`[PENDING SAVE] File save completed`);
         }
+        
+        console.log(`[PENDING SAVE] pendingVerifications size: ${pendingVerifications.size}`);
         
         // Clear temp data
         global.tempVerificationCodes.delete(interaction.user.id);
