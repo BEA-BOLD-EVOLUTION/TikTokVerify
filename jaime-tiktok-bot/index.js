@@ -1799,7 +1799,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
         
         // Backfill from pending verifications
         const allPending = await getAllPendingVerifications();
+        console.log(`[BACKFILL] Found ${allPending.size} total pending records`);
         for (const [discordId, data] of allPending.entries()) {
+          console.log(`[BACKFILL] Pending: ${discordId} - guildId: ${data.guildId} (looking for ${interaction.guild.id})`);
           if (data.guildId !== interaction.guild.id) continue;
           if (existingLogs[discordId]) {
             skipped++;
@@ -1826,7 +1828,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
         
         // Backfill from verified users
         const verifiedUsers = await getVerifiedUsers(interaction.guild.id);
+        console.log(`[BACKFILL] Found ${verifiedUsers.length} verified users for this guild`);
         for (const user of verifiedUsers) {
+          console.log(`[BACKFILL] Verified user: ${user.discordId} - @${user.tiktokUsername}`);
           if (existingLogs[user.discordId]) {
             skipped++;
             continue;
@@ -1844,6 +1848,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           added++;
         }
         
+        console.log(`[BACKFILL] Complete - Added: ${added}, Skipped: ${skipped}`);
         return interaction.editReply(`✅ Backfill complete!\n\n**Added:** ${added} entries\n**Skipped:** ${skipped} (already in log)`);
       }
       
