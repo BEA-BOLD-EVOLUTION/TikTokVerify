@@ -1309,6 +1309,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
             verifiedBy: interaction.user.tag,
           });
           
+          // Remove from pending if exists
+          if (pendingVerifications.has(targetUser.id)) {
+            pendingVerifications.delete(targetUser.id);
+            await redisDeletePending(targetUser.id);
+            console.log(`[MANUAL VERIFY] Cleared pending for ${targetUser.id}`);
+          }
+          
           return interaction.reply({ content: `✅ Manually verified **${targetUser.tag}** as **@${tiktokUsername}**`, ephemeral: true });
         } catch (err) {
           return interaction.reply({ content: `❌ Error: ${err.message}`, ephemeral: true });
