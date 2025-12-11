@@ -1080,6 +1080,9 @@ const slashCommands = [
   new SlashCommandBuilder()
     .setName('export-log')
     .setDescription('Export verification log as CSV'),
+  new SlashCommandBuilder()
+    .setName('backfill-log')
+    .setDescription('Populate verification log from existing pending/verified records'),
 ];
 
 // When bot is ready
@@ -1780,6 +1783,68 @@ client.on(Events.InteractionCreate, async (interaction) => {
           content: `📊 Exported ${entries.length} verification entries:`,
           files: [attachment],
         });
+      }
+      
+      // /backfill-log - Populate log from existing data
+      if (commandName === 'backfill-log') {
+        if (!isAdmin) {
+          return interaction.reply({ content: "❌ You need Administrator permission or Mods/Admins role.", ephemeral: true });
+        }
+        
+        await interaction.deferReply({ ephemeral: true });
+        
+        let added = 0;
+        let skipped = 0;
+        const existingLogs = await getVerificationLogs(interaction.guild.id);
+        
+        // Backfill from pending verifications
+        const allPending = await getAllPendingVerifications();
+        for (const [discordId, data] of allPending.entries()) {
+          if (data.guildId !== interaction.guild.id) continue;
+          if (existingLogs[discordId]) {
+            skipped++;
+            continue;
+          }
+          
+          // Try to get Discord username
+          let discordName = 'Unknown';
+          try {
+            const member = await interaction.guild.members.fetch(discordId).catch(() => null);
+            if (member) discordName = member.user.tag;
+          } catch (e) {}
+          
+          await saveVerificationLog(interaction.guild.id, discordId, {
+            discordId,
+            discordName,
+            tiktokUsername: data.username || 'Unknown',
+            code: data.code || 'Unknown',
+            status: 'pending',
+            initiatedAt: data.createdAt ? new Date(data.createdAt).toISOString() : new Date().toISOString(),
+          });
+          added++;
+        }
+        
+        // Backfill from verified users
+        const verifiedUsers = await getVerifiedUsers(interaction.guild.id);
+        for (const user of verifiedUsers) {
+          if (existingLogs[user.discordId]) {
+            skipped++;
+            continue;
+          }
+          
+          await saveVerificationLog(interaction.guild.id, user.discordId, {
+            discordId: user.discordId,
+            discordName: user.discordTag || 'Unknown',
+            tiktokUsername: user.tiktokUsername || 'Unknown',
+            code: 'BACKFILLED',
+            status: 'verified',
+            initiatedAt: user.verifiedAt || new Date().toISOString(),
+            verifiedAt: user.verifiedAt || new Date().toISOString(),
+          });
+          added++;
+        }
+        
+        return interaction.editReply(`✅ Backfill complete!\n\n**Added:** ${added} entries\n**Skipped:** ${skipped} (already in log)`);
       }
       
       return; // End slash command handling
