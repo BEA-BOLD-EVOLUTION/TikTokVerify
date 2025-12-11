@@ -1477,14 +1477,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       // Button: user says they added the code, now ask for profile link
       if (interaction.customId === 'verify_tiktok_added') {
-        let record = pendingVerifications.get(interaction.user.id);
-        if (!record && redis) {
-          record = await redisGetPending(interaction.user.id);
-          if (record) pendingVerifications.set(interaction.user.id, record);
-        }
-        if (!record) {
+        // Check for temp code from step 1
+        if (!global.tempVerificationCodes) global.tempVerificationCodes = new Map();
+        const tempData = global.tempVerificationCodes.get(interaction.user.id);
+        
+        if (!tempData) {
           return interaction.reply({
-            content: 'I could not find a pending verification for you. Please start again.',
+            content: 'I could not find a verification code for you. Please click "Verify TikTok" to start again.',
             ephemeral: true,
           });
         }
