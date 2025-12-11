@@ -1218,28 +1218,35 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return interaction.editReply('📋 No pending verifications in this server.');
         }
         
+        // Count stale entries (over 24 hours)
+        const staleCount = guildPending.filter(p => p.createdAt && Date.now() - p.createdAt > 24 * 60 * 60 * 1000).length;
+        
         const embed = new EmbedBuilder()
           .setTitle('⏳ Pending Verifications')
-          .setColor(0xf1c40f)
-          .setDescription(`Total: **${guildPending.length}** pending in this server`)
+          .setColor(staleCount > 0 ? 0xe74c3c : 0xf1c40f)
+          .setDescription(`Total: **${guildPending.length}** pending in this server${staleCount > 0 ? `\n\n⚠️ **${staleCount} stale entries** (over 24 hours) - may indicate issues!` : ''}`)
           .setTimestamp();
         
         const pendingList = guildPending.slice(0, 25).map((p, i) => {
           const username = p.username || 'Unknown';
           const code = p.code || 'N/A';
           let timeInfo = '';
+          let staleFlag = '';
           if (p.createdAt) {
             const elapsed = Date.now() - p.createdAt;
-            const remaining = Math.max(0, 24 * 60 * 60 * 1000 - elapsed);
-            const hoursLeft = Math.floor(remaining / (60 * 60 * 1000));
-            const minsLeft = Math.floor((remaining % (60 * 60 * 1000)) / (60 * 1000));
-            timeInfo = ` (${hoursLeft}h ${minsLeft}m left)`;
+            const hours = Math.floor(elapsed / (60 * 60 * 1000));
+            const mins = Math.floor((elapsed % (60 * 60 * 1000)) / (60 * 1000));
+            timeInfo = ` (${hours}h ${mins}m ago)`;
+            if (elapsed > 24 * 60 * 60 * 1000) {
+              staleFlag = ' ⚠️ STALE';
+            }
           }
-          return `**${i + 1}.** <@${p.discordId}> → @${username}\n   Code: \`${code}\`${timeInfo}`;
+          return `**${i + 1}.** <@${p.discordId}> → @${username}${staleFlag}\n   Code: \`${code}\`${timeInfo}`;
         }).join('\n\n');
         
         embed.addFields({ name: 'Waiting for Verification', value: pendingList || 'None' });
         if (guildPending.length > 25) embed.setFooter({ text: `Showing 25 of ${guildPending.length} pending` });
+        if (staleCount > 0) embed.addFields({ name: '💡 Tip', value: 'Stale entries may indicate:\n• Bot couldn\'t read TikTok bio\n• User didn\'t add code correctly\n• Account is private\n\nUse `/check-tiktok` to diagnose or `/manual-verify` to override.' });
         
         return interaction.editReply({ embeds: [embed] });
       }
