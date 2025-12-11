@@ -294,7 +294,7 @@ async function loadPendingVerifications() {
   // Try Redis first
   if (redis) {
     try {
-      await redis.connect();
+      // Redis auto-connects with lazyConnect, just use it directly
       const all = await redisGetAllPending();
       for (const [key, value] of Object.entries(all)) {
         pendingVerifications.set(key, value);
@@ -302,7 +302,7 @@ async function loadPendingVerifications() {
       console.log(`[Startup] Loaded ${pendingVerifications.size} pending verifications from Redis`);
       return;
     } catch (err) {
-      console.error('[Redis] Failed to load, falling back to file:', err.message);
+      console.error('[Redis] Failed to load pending, falling back to file:', err.message);
     }
   }
   
