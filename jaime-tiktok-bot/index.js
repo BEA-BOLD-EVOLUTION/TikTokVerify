@@ -971,8 +971,49 @@ async function runBackgroundVerificationCheck() {
         }
       }
       
-      if (result.accountNotFound) {
-        continue; // Already handled above
+      // If account not found or no bio, try username variations
+      if ((result.accountNotFound || !lastBio) && !verified) {
+        console.log(`[Background Verify] ${discordId} - Trying username variations for @${record.username}...`);
+        
+        const variations = generateUsernameVariations(record.username);
+        const allCodes = [record.code, ...(record.previousCodes || [])];
+        
+        for (const variation of variations.slice(0, 5)) { // Check up to 5 variations in background
+          const varResult = await fetchTikTokBio(variation, 0);
+          
+          if (varResult.bio) {
+            const bioUpper = varResult.bio.toUpperCase();
+            
+            for (const code of allCodes) {
+              const codeUpper = code.toUpperCase();
+              const typoVariant = codeUpper.replace('JAIME', 'JAMIE');
+              
+              if (bioUpper.includes(codeUpper) || bioUpper.includes(typoVariant)) {
+                console.log(`[Background Verify] ✅ Found code in variation @${variation}!`);
+                verified = true;
+                lastBio = varResult.bio;
+                result = varResult;
+                
+                // Update the record with correct username
+                record.username = variation;
+                pendingVerifications.set(discordId, record);
+                if (redis) {
+                  await redisSavePending(discordId, record);
+                }
+                break;
+              }
+            }
+            
+            if (verified) break;
+          }
+          
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      }
+      
+      if (result.accountNotFound && !verified) {
+        console.log(`[Background Verify] ${discordId} (@${record.username}) - Account not found, no variations matched`);
+        continue;
       }
       
       if (!lastBio) {
@@ -2136,9 +2177,54 @@ client.on(Events.InteractionCreate, async (interaction) => {
           console.log(`[VERIFY] Verified: ${verified}`);
           console.log(`[VERIFY] Account not found: ${accountNotFound}`);
           
-          // Handle account not found
-          if (accountNotFound) {
-            console.log(`[VERIFY] FAILED - Account not found`);
+          // If account not found or no bio, try username variations (handles repeated character typos)
+          if ((accountNotFound || !lastBio) && !verified) {
+            console.log(`[VERIFY] Trying username variations for @${record.username}...`);
+            await interaction.editReply('🔍 **Checking username variations...**\n\nLooking for accounts with similar usernames (checking repeated letters)...');
+            
+            const variations = generateUsernameVariations(record.username);
+            console.log(`[VERIFY] Generated ${variations.length} variations`);
+            
+            const allCodes = [record.code, ...(record.previousCodes || [])];
+            
+            for (const variation of variations.slice(0, 8)) { // Check up to 8 variations
+              console.log(`[VERIFY] Trying variation: @${variation}`);
+              const result = await fetchTikTokBio(variation, 0);
+              
+              if (result.bio) {
+                const bioUpper = result.bio.toUpperCase();
+                
+                for (const code of allCodes) {
+                  const codeUpper = code.toUpperCase();
+                  const typoVariant = codeUpper.replace('JAIME', 'JAMIE');
+                  
+                  if (bioUpper.includes(codeUpper) || bioUpper.includes(typoVariant)) {
+                    console.log(`[VERIFY] ✅ Found code in variation @${variation}!`);
+                    verified = true;
+                    foundCode = code;
+                    lastBio = result.bio;
+                    
+                    // Update the pending record with the correct username
+                    record.username = variation;
+                    pendingVerifications.set(interaction.user.id, record);
+                    if (redis) {
+                      await redisSavePending(interaction.user.id, record);
+                    }
+                    break;
+                  }
+                }
+                
+                if (verified) break;
+              }
+              
+              // Small delay between variation checks
+              await new Promise(r => setTimeout(r, 500));
+            }
+          }
+          
+          // Handle account not found (after trying variations)
+          if (accountNotFound && !verified) {
+            console.log(`[VERIFY] FAILED - Account not found (no variations matched)`);
             // Remove from pending since the account doesn't exist
             pendingVerifications.delete(interaction.user.id);
             if (redis) {
@@ -2147,13 +2233,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
               savePendingVerifications();
             }
             await interaction.editReply(
-              `❌ **TikTok account not found!**\n\nThe username **@${record.username}** doesn't exist on TikTok.\n\n**Please check:**\n• Did you spell your username correctly?\n• Is your account banned or deleted?\n• Try visiting tiktok.com/@${record.username} in your browser\n\nPlease start the verification process again with the correct username.`,
+              `❌ **TikTok account not found!**\n\nThe username **@${record.username}** doesn't exist on TikTok.\n\nI also checked similar usernames (with different repeated letters) but couldn't find a match.\n\n**Please check:**\n• Did you spell your username correctly?\n• Is your account banned or deleted?\n• Try visiting tiktok.com/@${record.username} in your browser\n\nPlease start the verification process again with the correct username.`,
             );
             return;
           }
           
           // Handle empty bio
-          if (emptyBio && !lastBio) {
+          if (emptyBio && !lastBio && !verified) {
             console.log(`[VERIFY] FAILED - Bio is empty`);
             await interaction.editReply(
               `❌ **Your TikTok bio is empty!**\n\nI found your account **@${record.username}**, but your bio is blank.\n\nPlease add this code to your TikTok bio:\n\`\`\`${record.code}\`\`\`\n\nThen click **"I Added the Code"** again.`,
@@ -2161,7 +2247,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return;
           }
           
-          if (!lastBio) {
+          if (!lastBio && !verified) {
             console.log(`[VERIFY] FAILED - No bio returned`);
             await interaction.editReply(
               '❌ I could not read your TikTok profile.\n\n**Troubleshooting:**\n• Make sure your profile is **public** (not private)\n• Your username might be incorrect\n• Try opening your profile on tiktok.com to confirm it\'s public\n\nOnce fixed, click **"I Added the Code"** again.',
@@ -2275,36 +2361,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
         }
 
-        // Check if the TikTok account exists before saving
-        await interaction.deferReply({ ephemeral: true });
-        
-        const accountExists = await checkTikTokAccountExists(username);
-        
-        if (!accountExists) {
-          console.log(`[USERNAME] Account @${username} not found, checking variations...`);
-          
-          // Check for similar usernames with different repeated character counts
-          const suggestions = await findSimilarUsernames(username);
-          
-          if (suggestions.length > 0) {
-            const suggestionList = suggestions.slice(0, 5).map(s => `• \`@${s}\``).join('\n');
-            return interaction.editReply({
-              content: `❌ **TikTok account \`@${username}\` was not found.**\n\n**Did you mean one of these?**\n${suggestionList}\n\n⚠️ Check for typos, especially with repeated letters (like "ee" vs "eee").\n\nClick "Verify TikTok" again with the correct username.`,
-            });
-          } else {
-            return interaction.editReply({
-              content: `❌ **TikTok account \`@${username}\` was not found.**\n\n**Possible reasons:**\n• Typo in the username (check repeated letters like "ee", "oo", etc.)\n• Account is private or banned\n• Account was deleted\n\n**Tips:**\n• Copy your username directly from TikTok\n• Make sure your profile is public\n\nClick "Verify TikTok" again with the correct username.`,
-            });
-          }
-        }
-
         // Get the temp code that was generated in step 1
         if (!global.tempVerificationCodes) global.tempVerificationCodes = new Map();
         const tempData = global.tempVerificationCodes.get(interaction.user.id);
         
         if (!tempData) {
-          return interaction.editReply({
+          return interaction.reply({
             content: 'I could not find a verification code for you. Please click "Verify TikTok" to start again.',
+            ephemeral: true,
           });
         }
         
@@ -2350,9 +2414,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         const row = new ActionRowBuilder().addComponents(checkButton);
 
-        await interaction.editReply({
+        await interaction.reply({
           content: `📋 **Step 2: Verify your profile**\n\nTikTok username: **@${username}**\nVerification code: \`${pendingData.code}\`\n\nMake sure the code is in your bio, then click **"Verify Now"**.\n\n⏳ **Verification may take up to 24 hours** due to TikTok's caching. If not verified immediately, I'll keep checking and **DM you** when it's done!`,
           components: [row],
+          ephemeral: true,
         });
       }
 
