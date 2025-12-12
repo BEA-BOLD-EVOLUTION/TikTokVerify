@@ -594,6 +594,87 @@ async function generateCode(guild) {
   return `${prefix}-${num}`;
 }
 
+// Generate username variations for repeated characters
+// e.g., "katie.marieeeeee" -> ["katie.marieeeee", "katie.marieeee", "katie.marieee", ...]
+function generateUsernameVariations(username) {
+  const variations = new Set();
+  
+  // Find sequences of repeated characters (2+ of same char)
+  const repeatedPattern = /(.)\1{1,}/g;
+  let match;
+  
+  while ((match = repeatedPattern.exec(username)) !== null) {
+    const char = match[1];
+    const count = match[0].length;
+    const startPos = match.index;
+    
+    // Generate variations with fewer and more repeated chars
+    for (let newCount = Math.max(1, count - 3); newCount <= count + 2; newCount++) {
+      if (newCount !== count) {
+        const before = username.substring(0, startPos);
+        const after = username.substring(startPos + count);
+        const variation = before + char.repeat(newCount) + after;
+        if (variation !== username) {
+          variations.add(variation);
+        }
+      }
+    }
+  }
+  
+  return Array.from(variations);
+}
+
+// Quick check if a TikTok account exists (without fetching full bio)
+async function checkTikTokAccountExists(username) {
+  const cleanUser = username.replace(/^@/, '').trim();
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+  };
+  
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    
+    const res = await fetch(`https://www.tiktok.com/@${cleanUser}`, { 
+      headers,
+      signal: controller.signal 
+    });
+    clearTimeout(timeout);
+    
+    if (!res.ok) return false;
+    
+    const html = await res.text();
+    // statusCode 0 = exists, 10222/209002 = not found
+    const statusMatch = html.match(/"statusCode":(\d+)/);
+    if (statusMatch) {
+      const code = parseInt(statusMatch[1]);
+      return code === 0;
+    }
+    return false;
+  } catch (err) {
+    return false;
+  }
+}
+
+// Find similar usernames that actually exist
+async function findSimilarUsernames(username) {
+  const variations = generateUsernameVariations(username);
+  console.log(`[USERNAME] Checking ${variations.length} variations for @${username}`);
+  
+  const existing = [];
+  for (const variation of variations.slice(0, 10)) { // Limit to 10 checks
+    const exists = await checkTikTokAccountExists(variation);
+    if (exists) {
+      existing.push(variation);
+      console.log(`[USERNAME] Found existing: @${variation}`);
+    }
+    // Small delay to avoid rate limiting
+    await new Promise(r => setTimeout(r, 200));
+  }
+  
+  return existing;
+}
+
 // TikTok bio fetcher - uses Android mobile Chrome user agent
 // Based on https://github.com/rxxv/TiktokAccountInfo approach
 // Extracts data from embedded JSON in page (more reliable than HTML parsing)
@@ -2194,14 +2275,36 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
         }
 
+        // Check if the TikTok account exists before saving
+        await interaction.deferReply({ ephemeral: true });
+        
+        const accountExists = await checkTikTokAccountExists(username);
+        
+        if (!accountExists) {
+          console.log(`[USERNAME] Account @${username} not found, checking variations...`);
+          
+          // Check for similar usernames with different repeated character counts
+          const suggestions = await findSimilarUsernames(username);
+          
+          if (suggestions.length > 0) {
+            const suggestionList = suggestions.slice(0, 5).map(s => `• \`@${s}\``).join('\n');
+            return interaction.editReply({
+              content: `❌ **TikTok account \`@${username}\` was not found.**\n\n**Did you mean one of these?**\n${suggestionList}\n\n⚠️ Check for typos, especially with repeated letters (like "ee" vs "eee").\n\nClick "Verify TikTok" again with the correct username.`,
+            });
+          } else {
+            return interaction.editReply({
+              content: `❌ **TikTok account \`@${username}\` was not found.**\n\n**Possible reasons:**\n• Typo in the username (check repeated letters like "ee", "oo", etc.)\n• Account is private or banned\n• Account was deleted\n\n**Tips:**\n• Copy your username directly from TikTok\n• Make sure your profile is public\n\nClick "Verify TikTok" again with the correct username.`,
+            });
+          }
+        }
+
         // Get the temp code that was generated in step 1
         if (!global.tempVerificationCodes) global.tempVerificationCodes = new Map();
         const tempData = global.tempVerificationCodes.get(interaction.user.id);
         
         if (!tempData) {
-          return interaction.reply({
+          return interaction.editReply({
             content: 'I could not find a verification code for you. Please click "Verify TikTok" to start again.',
-            ephemeral: true,
           });
         }
         
@@ -2247,10 +2350,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         const row = new ActionRowBuilder().addComponents(checkButton);
 
-        await interaction.reply({
+        await interaction.editReply({
           content: `📋 **Step 2: Verify your profile**\n\nTikTok username: **@${username}**\nVerification code: \`${pendingData.code}\`\n\nMake sure the code is in your bio, then click **"Verify Now"**.\n\n⏳ **Verification may take up to 24 hours** due to TikTok's caching. If not verified immediately, I'll keep checking and **DM you** when it's done!`,
           components: [row],
-          ephemeral: true,
         });
       }
 
