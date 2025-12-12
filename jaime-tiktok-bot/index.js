@@ -2222,19 +2222,30 @@ client.on(Events.InteractionCreate, async (interaction) => {
             }
           }
           
-          // Handle account not found (after trying variations)
+          // Handle account not found (after trying variations) - show suggestions to user
           if (accountNotFound && !verified) {
-            console.log(`[VERIFY] FAILED - Account not found (no variations matched)`);
-            // Remove from pending since the account doesn't exist
-            pendingVerifications.delete(interaction.user.id);
-            if (redis) {
-              await redisDeletePending(interaction.user.id);
+            console.log(`[VERIFY] FAILED - Account not found, finding existing variations to suggest...`);
+            
+            // Find which variations actually exist (even if code wasn't found)
+            const existingVariations = await findSimilarUsernames(record.username);
+            
+            if (existingVariations.length > 0) {
+              const suggestionList = existingVariations.slice(0, 5).map(s => `• \`@${s}\``).join('\n');
+              await interaction.editReply(
+                `❌ **TikTok account \`@${record.username}\` was not found.**\n\nI checked the code wasn't in any similar accounts either.\n\n**Did you mean one of these?**\n${suggestionList}\n\n⚠️ Make sure your code \`${record.code}\` is in the **correct account's** bio, then click "Verify Now" again.\n\nOr start over with the correct username.`,
+              );
             } else {
-              savePendingVerifications();
+              // No variations exist either
+              pendingVerifications.delete(interaction.user.id);
+              if (redis) {
+                await redisDeletePending(interaction.user.id);
+              } else {
+                savePendingVerifications();
+              }
+              await interaction.editReply(
+                `❌ **TikTok account not found!**\n\nThe username **@${record.username}** doesn't exist on TikTok.\n\nI also checked similar usernames (with different repeated letters) but couldn't find any matches.\n\n**Please check:**\n• Did you spell your username correctly?\n• Is your account banned or deleted?\n• Try visiting tiktok.com/@${record.username} in your browser\n\nPlease start the verification process again with the correct username.`,
+              );
             }
-            await interaction.editReply(
-              `❌ **TikTok account not found!**\n\nThe username **@${record.username}** doesn't exist on TikTok.\n\nI also checked similar usernames (with different repeated letters) but couldn't find a match.\n\n**Please check:**\n• Did you spell your username correctly?\n• Is your account banned or deleted?\n• Try visiting tiktok.com/@${record.username} in your browser\n\nPlease start the verification process again with the correct username.`,
-            );
             return;
           }
           
@@ -2242,16 +2253,27 @@ client.on(Events.InteractionCreate, async (interaction) => {
           if (emptyBio && !lastBio && !verified) {
             console.log(`[VERIFY] FAILED - Bio is empty`);
             await interaction.editReply(
-              `❌ **Your TikTok bio is empty!**\n\nI found your account **@${record.username}**, but your bio is blank.\n\nPlease add this code to your TikTok bio:\n\`\`\`${record.code}\`\`\`\n\nThen click **"I Added the Code"** again.`,
+              `❌ **Your TikTok bio is empty!**\n\nI found your account **@${record.username}**, but your bio is blank.\n\nPlease add this code to your TikTok bio:\n\`\`\`${record.code}\`\`\`\n\nThen click **"Verify Now"** again.`,
             );
             return;
           }
           
           if (!lastBio && !verified) {
             console.log(`[VERIFY] FAILED - No bio returned`);
-            await interaction.editReply(
-              '❌ I could not read your TikTok profile.\n\n**Troubleshooting:**\n• Make sure your profile is **public** (not private)\n• Your username might be incorrect\n• Try opening your profile on tiktok.com to confirm it\'s public\n\nOnce fixed, click **"I Added the Code"** again.',
-            );
+            
+            // Check if there are similar usernames that exist
+            const existingVariations = await findSimilarUsernames(record.username);
+            
+            if (existingVariations.length > 0) {
+              const suggestionList = existingVariations.slice(0, 5).map(s => `• \`@${s}\``).join('\n');
+              await interaction.editReply(
+                `❌ **Could not read profile for \`@${record.username}\`**\n\n**Did you mean one of these?**\n${suggestionList}\n\n⚠️ Make sure your code \`${record.code}\` is in the **correct account's** bio, then click "Verify Now" again.`,
+              );
+            } else {
+              await interaction.editReply(
+                '❌ I could not read your TikTok profile.\n\n**Troubleshooting:**\n• Make sure your profile is **public** (not private)\n• Your username might be incorrect\n• Try opening your profile on tiktok.com to confirm it\'s public\n\nOnce fixed, click **"Verify Now"** again.',
+              );
+            }
             return;
           }
 
