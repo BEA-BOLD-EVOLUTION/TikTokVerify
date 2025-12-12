@@ -8,17 +8,20 @@ A Discord bot that verifies users' TikTok accounts by checking for a unique code
 - 🎯 **Unique codes** - Bot generates server-specific codes (e.g., `JAIME-12345`)
 - ✅ **Automatic role assignment** - Verified users get a role automatically
 - 📋 **Verified users list** - Admins can view and export all verified users
-- 💾 **Persistent storage** - Verified users AND pending verifications survive restarts
-- 🌐 **24/7 hosting ready** - Designed for Railway, Heroku, or any Node.js host
+- 💾 **Persistent storage** - Redis-backed storage survives restarts and deployments
+- 🌐 **24/7 hosting ready** - Designed for Railway with Redis addon
 - 🏥 **Health checks** - Automatic checks every 4 hours to ensure TikTok access
 - 🔧 **Smart TikTok fetching** - Uses Android mobile headers + cache-busting to bypass CDN
 - 🔗 **Flexible input** - Accepts username (`bea.spoke`), handle (`@bea.spoke`), or full URL
 - 👮 **Manual verify** - Admins can manually verify users when needed
-- ⏳ **Background verification** - Checks pending verifications every 2 hours for up to 24 hours
+- ⏳ **Background verification** - Checks pending verifications every 5 minutes automatically
 - 🔄 **Previous codes accepted** - Accepts last 5 codes if user regenerates during verification
 - 📬 **DM notifications** - Users get a DM when background verification succeeds
 - 🚫 **Auto-unverify** - When Verified role is removed, user is removed from verified list
 - ✏️ **Typo tolerance** - Accepts common typos like `JAMIE` instead of `JAIME`
+- 🔍 **Username variations** - Auto-checks similar usernames when repeated characters cause issues
+- 📊 **Verification logs** - Complete audit trail of all verification attempts
+- 🎛️ **Slash commands** - Modern Discord slash command interface
 
 ## How Verification Works
 
@@ -28,9 +31,52 @@ A Discord bot that verifies users' TikTok accounts by checking for a unique code
 4. User clicks **"I Added the Code"** and enters their TikTok profile link
 5. Bot does a **quick check** (3 attempts)
 6. If found immediately → User receives the **Verified** role 🎉
-7. If not found → Bot tells user it will **check every 2 hours** and DM them when verified
-8. Background job runs every 2 hours, checking all pending verifications
+7. If not found → Bot tells user it will **keep checking** and DM them when verified
+8. Background job runs every **5 minutes**, checking all pending verifications
 9. When code is found → User gets the role and receives a DM notification
+
+---
+
+## Slash Commands
+
+### Admin Commands
+
+| Command | Description |
+|---------|-------------|
+| `/setup-verify` | Creates the verification panel in the current channel |
+| `/set-verified-role` | Set the role given to verified users |
+| `/verified-list` | Shows all verified users with their TikTok profiles |
+| `/verified-export` | Exports verified users as a CSV file |
+| `/pending` | Shows all pending verifications from Redis |
+| `/test-tiktok [username]` | Tests if the bot can read TikTok bios |
+| `/manual-verify` | Manually verify a user without bio check |
+| `/unverify` | Remove a user's verification |
+| `/verification-log` | View verification history (pending, verified, failed) |
+| `/export-log` | Export verification log as CSV file |
+| `/backfill-log` | Populate verification log from existing records |
+| `/debug` | Show bot debug info (Redis, pending count, health) |
+
+### Accepted TikTok Input Formats
+
+Users can enter their TikTok in any of these formats:
+
+- `username` (e.g., `bea.spoke`)
+- `@username` (e.g., `@bea.spoke`)
+- Full URL (e.g., `https://www.tiktok.com/@bea.spoke`)
+- URL with parameters (e.g., `https://www.tiktok.com/@bea.spoke?is_from_webapp=1`)
+
+### User Flow
+
+1. User clicks the **"Verify TikTok"** button
+2. Bot shows their unique verification code (e.g., `JAIME-12345`)
+3. User adds the code to the **beginning** of their TikTok bio
+4. User clicks **"I Added the Code"**
+5. User enters their TikTok profile link in the modal
+6. Bot does a quick check (3 attempts over ~10 seconds)
+7. **If found immediately:** User receives the **Verified** role 🎉
+8. **If not found:** Bot tells user it will check every 5 minutes and DM them when verified
+9. Background job runs every 5 minutes, checking all pending verifications
+10. When code is found, user receives a DM and gets the Verified role
 
 ---
 
@@ -41,7 +87,7 @@ A Discord bot that verifies users' TikTok accounts by checking for a unique code
 1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
 2. Click **"New Application"** and give it a name
 3. Go to the **Bot** section and click **"Add Bot"**
-4. Copy your **Bot Token** (you'll need this for `.env`)
+4. Copy your **Bot Token** (you'll need this for environment variables)
 
 #### Enable Privileged Intents
 
@@ -85,102 +131,41 @@ Or use the OAuth2 URL Generator:
 
 ---
 
-### 3. Create the Verified Role
+### 3. Deploy to Railway
 
-1. In your Discord server, go to **Server Settings** → **Roles**
-2. Create a new role called **"Verified Viewer"** (or any name you prefer)
-3. Right-click the role and select **"Copy Role ID"**
-   - (You need Developer Mode enabled: User Settings → App Settings → Advanced → Developer Mode)
-4. Save this Role ID for the `.env` file
-
-**Important:** Make sure the bot's role is **higher** than the "Verified Viewer" role in the role hierarchy, otherwise it won't be able to assign the role.
+1. Create a new Railway project
+2. Connect your GitHub repository
+3. Add a **Redis** database (+ New → Database → Redis)
+4. Set environment variables (see below)
+5. Deploy!
 
 ---
 
 ### 4. Configure Environment Variables
 
-Create a `.env` file in the `jaime-tiktok-bot` folder:
+Set these in Railway (or create a `.env` file locally):
 
 ```env
 DISCORD_TOKEN=your_bot_token_here
 DISCORD_APPLICATION_ID=your_application_id_here
 DISCORD_PUBLIC_KEY=your_public_key_here
-BOT_PREFIX=!
-VERIFIED_ROLE_ID=your_verified_role_id_here
 REDIS_URL=redis://default:password@host:port
+BOT_OWNER_ID=your_discord_user_id (optional)
 ```
 
-Replace the placeholder values with your actual credentials.
-
-**Redis (Optional but Recommended):** Adding `REDIS_URL` enables persistent storage that survives deployments. Without it, pending verifications are stored in a local file (which gets wiped on Railway deploys).
+**Redis is required** for persistent storage that survives deployments.
 
 ---
 
-### 4b. Set Up Redis on Railway (Recommended)
+### 5. Configure the Bot in Discord
 
-1. In your Railway project, click **"+ New"** → **"Database"** → **"Redis"**
-2. Click on the Redis service and go to **"Variables"**
-3. Copy the `REDIS_URL` value
-4. Add it to your bot's environment variables in Railway
+Once the bot is running:
 
-This ensures verification codes survive deployments and restarts.
+1. Run `/set-verified-role` and select the role to give verified users
+2. Run `/setup-verify` in the channel where you want the verification panel
+3. Done! Users can now click "Verify TikTok" to start
 
----
-
-### 5. Install Dependencies
-
-```bash
-cd jaime-tiktok-bot
-npm install
-```
-
----
-
-### 6. Run the Bot
-
-```bash
-node index.js
-```
-
-You should see: `Logged in as YourBotName#1234`
-
----
-
-## Usage
-
-### Admin Commands
-
-| Command | Description |
-|---------|-------------|
-| `!setup-verify` | Creates the verification panel in the current channel (Admin only) |
-| `!verified-list` | Shows all verified users with their TikTok profiles |
-| `!verified-export` | Exports verified users as a CSV file |
-| `!pending` | Shows all pending verifications from Redis |
-| `!test-tiktok` | Tests if the bot can read TikTok bios (health check) |
-| `!test-tiktok @username` | Tests reading a specific user's TikTok bio |
-| `!manual-verify @user @tiktok` | Manually verify a user without bio check (Admin only) |
-
-### Accepted TikTok Input Formats
-
-Users can enter their TikTok in any of these formats:
-
-- `username` (e.g., `bea.spoke`)
-- `@username` (e.g., `@bea.spoke`)
-- Full URL (e.g., `https://www.tiktok.com/@bea.spoke`)
-- URL with parameters (e.g., `https://www.tiktok.com/@bea.spoke?is_from_webapp=1`)
-
-### User Flow
-
-1. User clicks the **"Verify TikTok"** button
-2. Bot shows their unique verification code (e.g., `JAIME-12345`)
-3. User adds the code to the **beginning** of their TikTok bio
-4. User clicks **"I Added the Code"**
-5. User enters their TikTok profile link in the modal
-6. Bot does a quick check (3 attempts over ~10 seconds)
-7. **If found immediately:** User receives the **Verified** role 🎉
-8. **If not found:** Bot tells user it will check every 2 hours and DM them when verified
-9. Background job runs every 2 hours, checking all pending verifications
-10. When code is found, user receives a DM and gets the Verified role
+**Important:** Make sure the bot's role is **higher** than the Verified role in the role hierarchy.
 
 ---
 
@@ -197,29 +182,33 @@ Ensure the bot's role is **higher** than the Verified Viewer role in Server Sett
 ### "I could not read your TikTok profile"
 
 - The user's TikTok profile must be **public**
-- Run `!test-tiktok` to check if the bot can access TikTok
+- Run `/test-tiktok` to check if the bot can access TikTok
 - Check Railway logs for health check results
 
 ### TikTok blocking requests
 
 - The bot uses Android mobile headers to bypass blocking
 - Health checks run every 4 hours and log results
-- Use `!test-tiktok` to manually verify TikTok access
+- Use `/test-tiktok` to manually verify TikTok access
 
 ### TikTok CDN caching (bio changes not showing)
 
-- TikTok's CDN can take **up to 24 hours** to propagate bio changes globally
-- The bot uses cache-busting query parameters to try to get fresh content
-- Quick check does 3 attempts when user clicks "I Added the Code"
-- **Background verification** runs every 2 hours to catch delayed CDN updates
-- If verification doesn't complete in 24 hours, users should contact an admin
-- Admins can use `!pending` to see all pending verifications
-- Admins can use `!manual-verify @user @tiktok` to bypass the bio check
+- TikTok's CDN can take time to propagate bio changes
+- The bot uses cache-busting query parameters to get fresh content
+- **Background verification** runs every 5 minutes to catch delayed updates
+- Admins can use `/pending` to see all pending verifications
+- Admins can use `/manual-verify` to bypass the bio check
+
+### Username typos with repeated characters
+
+- The bot automatically checks username variations (e.g., `marieeee` vs `marieee`)
+- If the exact username fails, it suggests similar usernames that exist
 
 ### Bot not responding to commands
 
 - Make sure the bot has permission to read messages in the channel
-- Check that you're using the correct prefix (default: `!`)
+- Slash commands are automatically registered on startup
+- Try kicking and re-inviting the bot if commands don't appear
 
 ---
 
@@ -233,9 +222,6 @@ jaime-tiktok-bot/
 ├── index.html                  # Website landing page
 ├── privacy.html                # Privacy policy
 ├── terms.html                  # Terms of service
-├── verified-users.json         # Saved verified users (auto-created)
-├── pending-verifications.json  # Pending verifications (survives restarts)
-├── .env                        # Environment variables (DO NOT COMMIT)
 ├── vercel.json                 # Vercel deployment config
 ├── images/                     # Logo and screenshots
 └── README.md                   # This file
@@ -256,16 +242,28 @@ jaime-tiktok-bot/
 | Technology | Purpose |
 |------------|---------|
 | **Node.js 18+** | Runtime (native fetch support) |
-| **discord.js v14** | Discord bot framework |
+| **discord.js v14** | Discord bot framework with slash commands |
 | **Express.js** | Web server for dashboard |
 | **ioredis** | Redis client for persistent storage |
-| **Vercel** | Website hosting |
-| **Railway** | 24/7 bot hosting |
-| **Redis** | Persistent pending verifications (survives deploys) |
-| **JSON file storage** | Verified users database (fallback for pending) |
+| **Railway** | 24/7 bot hosting with Redis addon |
+| **Redis** | Persistent storage for configs, pending, verified users, and logs |
+
+---
+
+## Background Verification System
+
+The bot uses a fast, reliable background verification system:
+
+- **Runs every 5 minutes** - Quick checks, doesn't block
+- **Entire cycle completes in seconds** - Checks all pending users rapidly
+- **Survives restarts** - Syncs from Redis on every cycle
+- **Typo tolerant** - Accepts `JAMIE` instead of `JAIME`
+- **Username variations** - Auto-checks similar usernames
+- **DM notifications** - Users get notified when verified
 
 ---
 
 ## License
 
 MIT
+
