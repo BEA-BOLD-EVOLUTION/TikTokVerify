@@ -661,13 +661,13 @@
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">⏳</div>
-                    <h3>24-Hour Background Checks</h3>
-                    <p>TikTok's servers can be slow. We check every 2 hours for up to 24 hours - no need to wait around!</p>
+                    <h3>5-Minute Background Checks</h3>
+                    <p>TikTok's servers can be slow. We check every 5 minutes automatically - no need to wait around!</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">🔄</div>
-                    <h3>10 Retry Attempts</h3>
-                    <p>Each check includes 10 attempts with smart delays to catch even the most stubborn TikTok CDN caches.</p>
+                    <h3>Username Variation Detection</h3>
+                    <p>Typo in username? The bot auto-checks variations like `marieee` vs `marieeee` and suggests corrections.</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">🧹</div>
@@ -680,9 +680,19 @@
                     <p>Accepts TikTok usernames or full profile links. Validates format before saving - no more invalid entries!</p>
                 </div>
                 <div class="feature-card">
+                    <div class="feature-icon">✏️</div>
+                    <h3>Typo Tolerance</h3>
+                    <p>Accidentally typed JAMIE instead of JAIME? No problem - the bot accepts common typos automatically.</p>
+                </div>
+                <div class="feature-card">
                     <div class="feature-icon">📊</div>
-                    <h3>Admin Commands</h3>
-                    <p>Check who's verified, view pending verifications, manually verify users, and clean up stale records.</p>
+                    <h3>Verification Logs</h3>
+                    <p>Complete audit trail of all verification attempts. Export logs as CSV, filter by status, track everything.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🎛️</div>
+                    <h3>Slash Commands</h3>
+                    <p>Modern Discord slash commands for all admin actions. /setup-verify, /pending, /manual-verify, and more.</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">💀</div>
@@ -842,7 +852,7 @@
             <div class="step">
                 <h3>Get Verified! 🎉</h3>
                 <p>If found immediately, you'll receive the <strong>Verified Viewer</strong> role instantly!</p>
-                <p>If not found right away, don't worry - the bot will <strong>automatically check every 2 hours</strong> and DM you when verified. You can close Discord and come back later.</p>
+                <p>If not found right away, don't worry - the bot will <strong>automatically check every 5 minutes</strong> and DM you when verified. You can close Discord and come back later.</p>
             </div>
         </div>
 
@@ -851,7 +861,7 @@
         </div>
 
         <div class="warning-box">
-            <p><strong>⏳ Why does it take time?</strong> TikTok's servers can take up to 24 hours to sync bio changes globally. The bot checks every 2 hours and will DM you when your verification succeeds. If it's been more than 24 hours, ask an admin for help.</p>
+            <p><strong>⏳ Why does it take time?</strong> TikTok's servers can take time to sync bio changes globally. The bot checks every 5 minutes and will DM you when your verification succeeds. If it's been more than a few hours, ask an admin for help.</p>
         </div>
     </section>
 
@@ -1192,7 +1202,7 @@
                 <li>Profile must be <strong>public</strong>.</li>
                 <li>Code must appear at the <strong>beginning</strong> of the TikTok bio.</li>
                 <li>Profile link or username must be correct.</li>
-                <li><strong>Don't worry!</strong> The bot checks every 2 hours for up to 24 hours automatically.</li>
+                <li><strong>Don't worry!</strong> The bot checks every 5 minutes automatically.</li>
             </ul>
         </div>
         
@@ -1206,7 +1216,7 @@
         </div>
 
         <div class="highlight-box">
-            <h3>If still not working after 24 hours:</h3>
+            <h3>If still not working after a few hours:</h3>
             <ul>
                 <li>Run <code>/check-tiktok</code> to verify the account exists.</li>
                 <li>Run <code>/cleanup</code> to remove stale records.</li>
@@ -1290,7 +1300,7 @@
 
         <h2>Background Verification</h2>
         <div class="highlight-box">
-            <p>The bot automatically checks pending verifications <strong>every 2 hours</strong> for up to <strong>24 hours</strong>. Each check includes <strong>10 retry attempts</strong> with smart delays to handle TikTok's CDN caching.</p>
+            <p>The bot automatically checks pending verifications <strong>every 5 minutes</strong>. Each cycle completes in seconds with smart variation checking to handle typos and TikTok's CDN caching.</p>
             <p style="margin-top: 12px;">Users receive a DM when verification succeeds. Non-existent TikTok accounts are automatically removed from the queue.</p>
         </div>
     </section>
