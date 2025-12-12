@@ -197,10 +197,13 @@ async function saveGuildConfigs() {
     try {
       for (const [guildId, config] of guildConfigs.entries()) {
         await redis.set(`${REDIS_PREFIX}config:${guildId}`, JSON.stringify(config));
+        console.log(`[Config] Saved config for guild ${guildId} to Redis:`, JSON.stringify(config));
       }
     } catch (err) {
       console.error('[Redis] Error saving guild configs:', err.message);
     }
+  } else {
+    console.log('[Config] Redis not available, saving to file only');
   }
   
   // Also save to file as backup
@@ -220,10 +223,12 @@ function getVerifiedRoleId(guildId) {
 
 // Set verified role ID for a guild
 async function setVerifiedRoleId(guildId, roleId) {
+  console.log(`[Config] Setting verified role for guild ${guildId} to ${roleId}`);
   const config = guildConfigs.get(guildId) || {};
   config.verifiedRoleId = roleId;
   guildConfigs.set(guildId, config);
   await saveGuildConfigs();
+  console.log(`[Config] Verified role saved. guildConfigs now has ${guildConfigs.size} entries`);
 }
 
 // Track users currently in active verification polling (to prevent multiple loops)
