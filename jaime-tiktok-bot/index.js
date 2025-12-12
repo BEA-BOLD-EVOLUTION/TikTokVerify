@@ -879,11 +879,14 @@ function startHealthCheckScheduler() {
   console.log('[Health Check] Scheduler started - will check every 4 hours');
 }
 
-// Background verification checker - runs every 2 hours to check all pending verifications
+// Background verification checker - REDESIGNED for speed and reliability
+// Runs every 5 minutes, checks each user ONCE per cycle (fast checks)
+// Entire cycle completes in seconds, not hours - survives restarts gracefully
 async function runBackgroundVerificationCheck() {
-  console.log('[Background Verify] Starting check of all pending verifications...');
+  const startTime = Date.now();
+  console.log('[Background Verify] Starting quick check cycle...');
   
-  // Sync from Redis first
+  // Always sync fresh from Redis (handles restarts gracefully)
   if (redis) {
     try {
       const keys = await redis.keys(`${REDIS_PREFIX}pending:*`);
@@ -892,9 +895,8 @@ async function runBackgroundVerificationCheck() {
         if (data) {
           const parsed = JSON.parse(data);
           const discordId = key.replace(`${REDIS_PREFIX}pending:`, '');
-          if (!pendingVerifications.has(discordId)) {
-            pendingVerifications.set(discordId, parsed);
-          }
+          // Always update from Redis (source of truth)
+          pendingVerifications.set(discordId, parsed);
         }
       }
     } catch (err) {
@@ -903,237 +905,207 @@ async function runBackgroundVerificationCheck() {
   }
 
   const pending = Array.from(pendingVerifications.entries());
-  console.log(`[Background Verify] Checking ${pending.length} pending verifications...`);
+  if (pending.length === 0) {
+    console.log('[Background Verify] No pending verifications.');
+    return;
+  }
+  
+  console.log(`[Background Verify] Checking ${pending.length} pending verification(s)...`);
+  
+  let verified = 0;
+  let failed = 0;
+  let skipped = 0;
 
   for (const [discordId, record] of pending) {
     if (!record.username || record.username === 'undefined') {
-      console.log(`[Background Verify] Skipping ${discordId} - no username in record`);
+      console.log(`[Background Verify] Skipping ${discordId} - no username`);
+      skipped++;
       continue;
     }
 
     try {
-      // Try up to 120 times total (12 rounds of 10 attempts with 5 second delays)
-      let result = null;
-      let lastBio = null;
-      const maxRounds = 12;
-      const attemptsPerRound = 10;
-      let verified = false;
+      // Quick single check - no retries, we'll check again next cycle
+      const result = await fetchTikTokBio(record.username, 0);
       
-      for (let round = 1; round <= maxRounds && !verified; round++) {
-        console.log(`[Background Verify] ${discordId} (@${record.username}) - Round ${round}/${maxRounds}`);
-        
-        for (let attempt = 1; attempt <= attemptsPerRound && !verified; attempt++) {
-          result = await fetchTikTokBio(record.username, (round - 1) * attemptsPerRound + attempt - 1);
-          
-          if (result.accountNotFound) {
-            console.log(`[Background Verify] ${discordId} (@${record.username}) - Account not found, removing from pending`);
-            pendingVerifications.delete(discordId);
-            if (redis) {
-              await redisDeletePending(discordId);
-            }
+      // Try username variations if account not found or no bio
+      let finalResult = result;
+      let effectiveUsername = record.username;
+      
+      if (result.accountNotFound || !result.bio) {
+        // Quick variation check - try top 3 variations
+        const variations = generateUsernameVariations(record.username);
+        for (const variation of variations.slice(0, 3)) {
+          const varResult = await fetchTikTokBio(variation, 0);
+          if (varResult.bio) {
+            finalResult = varResult;
+            effectiveUsername = variation;
+            console.log(`[Background Verify] ${discordId} - Found working variation: @${variation}`);
             break;
           }
-          
-          if (result.bio) {
-            lastBio = result.bio;
-            
-            // Check if code is in bio
-            const bioUpper = result.bio.toUpperCase();
-            const allCodes = [record.code, ...(record.previousCodes || [])];
-            
-            for (const code of allCodes) {
-              const codeUpper = code.toUpperCase();
-              const typoVariant = codeUpper.replace('JAIME', 'JAMIE');
-              
-              if (bioUpper.includes(codeUpper) || bioUpper.includes(typoVariant)) {
-                // Found it! Stop all attempts
-                console.log(`[Background Verify] ✅ Found code on round ${round}, attempt ${attempt}`);
-                verified = true;
-                break;
-              }
-            }
-          }
-          
-          // Wait 5 seconds before next retry
-          if (!verified && attempt < attemptsPerRound) {
-            await new Promise(r => setTimeout(r, 5000));
-          }
-        }
-        
-        if (result.accountNotFound) {
-          break; // Stop all rounds if account not found
-        }
-        
-        // Wait between rounds if not verified yet (optional, can add longer delay here)
-        if (!verified && round < maxRounds) {
-          console.log(`[Background Verify] ${discordId} - Completed round ${round}, waiting before next round...`);
-          await new Promise(r => setTimeout(r, 5000));
+          await new Promise(r => setTimeout(r, 500)); // Quick delay
         }
       }
       
-      // If account not found or no bio, try username variations
-      if ((result.accountNotFound || !lastBio) && !verified) {
-        console.log(`[Background Verify] ${discordId} - Trying username variations for @${record.username}...`);
-        
-        const variations = generateUsernameVariations(record.username);
-        const allCodes = [record.code, ...(record.previousCodes || [])];
-        
-        for (const variation of variations.slice(0, 5)) { // Check up to 5 variations in background
-          const varResult = await fetchTikTokBio(variation, 0);
-          
-          if (varResult.bio) {
-            const bioUpper = varResult.bio.toUpperCase();
-            
-            for (const code of allCodes) {
-              const codeUpper = code.toUpperCase();
-              const typoVariant = codeUpper.replace('JAIME', 'JAMIE');
-              
-              if (bioUpper.includes(codeUpper) || bioUpper.includes(typoVariant)) {
-                console.log(`[Background Verify] ✅ Found code in variation @${variation}!`);
-                verified = true;
-                lastBio = varResult.bio;
-                result = varResult;
-                
-                // Update the record with correct username
-                record.username = variation;
-                pendingVerifications.set(discordId, record);
-                if (redis) {
-                  await redisSavePending(discordId, record);
-                }
-                break;
-              }
-            }
-            
-            if (verified) break;
-          }
-          
-          await new Promise(r => setTimeout(r, 1000));
-        }
-      }
-      
-      if (result.accountNotFound && !verified) {
-        console.log(`[Background Verify] ${discordId} (@${record.username}) - Account not found, no variations matched`);
+      if (!finalResult.bio) {
+        // No bio found - will try again next cycle
+        const reason = finalResult.accountNotFound ? 'account not found' : (finalResult.emptyBio ? 'bio empty' : 'fetch failed');
+        console.log(`[Background Verify] ${discordId} (@${record.username}) - ${reason}, will retry next cycle`);
+        failed++;
         continue;
       }
       
-      if (!lastBio) {
-        console.log(`[Background Verify] ${discordId} (@${record.username}) - Could not fetch bio after ${maxRounds * attemptsPerRound} attempts${result.emptyBio ? ' (bio is empty)' : ''}`);
-        continue;
-      }
-      
-      if (!verified) {
-        console.log(`[Background Verify] ${discordId} (@${record.username}) - Code not found after ${maxRounds * attemptsPerRound} attempts`);
-        continue;
-      }
-
-      // If we get here, verified is true - find the matched code
-      const bioUpper = lastBio.toUpperCase();
+      // Check if code is in bio
+      const bioUpper = finalResult.bio.toUpperCase();
       const allCodes = [record.code, ...(record.previousCodes || [])];
       let matchedCode = null;
-
+      
       for (const code of allCodes) {
         const codeUpper = code.toUpperCase();
-        const typoVariant = codeUpper.replace('JAIME', 'JAMIE');
+        const typoVariant = codeUpper.replace('JAIME', 'JAMIE'); // Handle common typo
         
         if (bioUpper.includes(codeUpper) || bioUpper.includes(typoVariant)) {
           matchedCode = code;
           break;
         }
       }
-
-      if (matchedCode) {
-        console.log(`[Background Verify] ✅ MATCH FOUND! ${discordId} (@${record.username}) - Code: ${matchedCode}`);
-        
-        // Verify the user
-        try {
-          const guild = client.guilds.cache.get(record.guildId);
-          if (!guild) {
-            console.log(`[Background Verify] Could not find guild ${record.guildId}`);
-            continue;
-          }
-
-          const member = await guild.members.fetch(discordId).catch(() => null);
-          if (!member) {
-            console.log(`[Background Verify] Could not find member ${discordId} in guild`);
-            continue;
-          }
-
-          const roleId = getVerifiedRoleId(record.guildId);
-          if (!roleId) {
-            console.log(`[Background Verify] No verified role configured for guild ${record.guildId}`);
-            continue;
-          }
-          
-          const role = guild.roles.cache.get(roleId);
-          if (!role) {
-            console.log(`[Background Verify] Could not find verified role ${roleId}`);
-            continue;
-          }
-
-          await member.roles.add(role);
-
-          // Save to verified users list
-          await addVerifiedUser(record.guildId, discordId, member.user.tag, record.username);
-          
-          // Update verification log to verified (background)
-          // Include extra data in case log entry doesn't exist (for legacy pending records)
-          await updateVerificationStatus(record.guildId, discordId, 'verified', new Date().toISOString(), {
-            discordName: member.user.tag,
-            tiktokUsername: record.username,
-            code: matchedCode,
-            initiatedAt: record.createdAt ? new Date(record.createdAt).toISOString() : new Date().toISOString(),
-          });
-          console.log(`[Background Verify] Updated verification log for ${discordId}`);
-
-          // Remove from pending
-          pendingVerifications.delete(discordId);
-          if (redis) {
-            await redisDeletePending(discordId);
-          } else {
-            savePendingVerifications();
-          }
-
-          // Try to DM the user
-          try {
-            await member.send(`🎉 **Verification successful!**\n\nI found the code **${matchedCode}** in the bio of **@${record.username}**.\nYou've been given the **Verified Viewer** role in **${guild.name}**.\n\nYou can remove the code from your TikTok bio now. 💀`);
-            console.log(`[Background Verify] Sent DM to ${member.user.tag}`);
-          } catch (dmErr) {
-            console.log(`[Background Verify] Could not DM ${member.user.tag} - DMs may be disabled`);
-          }
-
-        } catch (verifyErr) {
-          console.error(`[Background Verify] Error verifying ${discordId}:`, verifyErr.message);
+      
+      if (!matchedCode) {
+        // Code not found yet - will try again next cycle
+        const bioPreview = finalResult.bio.substring(0, 50).replace(/\n/g, ' ');
+        console.log(`[Background Verify] ${discordId} (@${effectiveUsername}) - Code not in bio: "${bioPreview}..."`);
+        failed++;
+        continue;
+      }
+      
+      // SUCCESS! Code found - verify the user
+      console.log(`[Background Verify] ✅ MATCH! ${discordId} (@${effectiveUsername}) - Code: ${matchedCode}`);
+      
+      try {
+        const guild = client.guilds.cache.get(record.guildId);
+        if (!guild) {
+          console.log(`[Background Verify] Could not find guild ${record.guildId}`);
+          continue;
         }
-      } else {
-        console.log(`[Background Verify] ${discordId} (@${record.username}) - No code match. Bio: "${lastBio.substring(0, 40)}..."`);
+
+        const member = await guild.members.fetch(discordId).catch(() => null);
+        if (!member) {
+          console.log(`[Background Verify] Could not find member ${discordId}`);
+          continue;
+        }
+
+        const roleId = getVerifiedRoleId(record.guildId);
+        if (!roleId) {
+          console.log(`[Background Verify] No verified role for guild ${record.guildId} - guildConfigs has ${guildConfigs.size} entries`);
+          // Try to reload config from Redis
+          if (redis) {
+            try {
+              const configData = await redis.get(`${REDIS_PREFIX}config:${record.guildId}`);
+              if (configData) {
+                const config = JSON.parse(configData);
+                guildConfigs.set(record.guildId, config);
+                console.log(`[Background Verify] Reloaded config from Redis, roleId: ${config.verifiedRoleId}`);
+                if (config.verifiedRoleId) {
+                  // Retry with reloaded config
+                  const reloadedRoleId = config.verifiedRoleId;
+                  const role = guild.roles.cache.get(reloadedRoleId);
+                  if (role) {
+                    await member.roles.add(role);
+                    await addVerifiedUser(record.guildId, discordId, member.user.tag, effectiveUsername);
+                    await updateVerificationStatus(record.guildId, discordId, 'verified', new Date().toISOString(), {
+                      discordName: member.user.tag,
+                      tiktokUsername: effectiveUsername,
+                      code: matchedCode,
+                      initiatedAt: record.createdAt ? new Date(record.createdAt).toISOString() : new Date().toISOString(),
+                    });
+                    pendingVerifications.delete(discordId);
+                    if (redis) await redisDeletePending(discordId);
+                    try {
+                      await member.send(`🎉 **Verification successful!**\n\nI found the code **${matchedCode}** in the bio of **@${effectiveUsername}**.\nYou've been given the **Verified Viewer** role in **${guild.name}**.\n\nYou can remove the code from your TikTok bio now. 💀`);
+                    } catch (e) {}
+                    verified++;
+                    console.log(`[Background Verify] ✅ Verified after config reload!`);
+                    continue;
+                  }
+                }
+              } else {
+                console.log(`[Background Verify] No config in Redis for guild ${record.guildId}`);
+              }
+            } catch (e) {
+              console.log(`[Background Verify] Error reloading config: ${e.message}`);
+            }
+          }
+          continue;
+        }
+        
+        const role = guild.roles.cache.get(roleId);
+        if (!role) {
+          console.log(`[Background Verify] Could not find role ${roleId}`);
+          continue;
+        }
+
+        await member.roles.add(role);
+
+        // Save to verified users list
+        await addVerifiedUser(record.guildId, discordId, member.user.tag, effectiveUsername);
+        
+        // Update verification log
+        await updateVerificationStatus(record.guildId, discordId, 'verified', new Date().toISOString(), {
+          discordName: member.user.tag,
+          tiktokUsername: effectiveUsername,
+          code: matchedCode,
+          initiatedAt: record.createdAt ? new Date(record.createdAt).toISOString() : new Date().toISOString(),
+        });
+
+        // Remove from pending
+        pendingVerifications.delete(discordId);
+        if (redis) {
+          await redisDeletePending(discordId);
+        } else {
+          savePendingVerifications();
+        }
+
+        // DM the user
+        try {
+          await member.send(`🎉 **Verification successful!**\n\nI found the code **${matchedCode}** in the bio of **@${effectiveUsername}**.\nYou've been given the **Verified Viewer** role in **${guild.name}**.\n\nYou can remove the code from your TikTok bio now. 💀`);
+        } catch (dmErr) {
+          console.log(`[Background Verify] Could not DM ${member.user.tag}`);
+        }
+        
+        verified++;
+
+      } catch (verifyErr) {
+        console.error(`[Background Verify] Error verifying ${discordId}:`, verifyErr.message);
       }
 
-      // Small delay between checks to avoid rate limiting
-      await new Promise(r => setTimeout(r, 2000));
+      // Small delay between users to avoid rate limiting
+      await new Promise(r => setTimeout(r, 1000));
       
     } catch (err) {
       console.error(`[Background Verify] Error checking ${discordId}:`, err.message);
+      failed++;
     }
   }
 
-  console.log('[Background Verify] Check complete.');
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`[Background Verify] Cycle complete in ${elapsed}s - Verified: ${verified}, Pending: ${failed}, Skipped: ${skipped}`);
 }
 
-// Start background verification scheduler
+// Start background verification scheduler - runs every 5 minutes
 function startBackgroundVerificationScheduler() {
-  const TWO_HOURS = 2 * 60 * 60 * 1000;
+  const FIVE_MINUTES = 5 * 60 * 1000;
   
-  // Run initial check after 2 minutes (give time for bot to fully start)
+  // Run initial check after 30 seconds (quick startup)
   setTimeout(async () => {
+    console.log('[Background Verify] Running initial check...');
     await runBackgroundVerificationCheck();
-  }, 2 * 60 * 1000);
+  }, 30 * 1000);
   
-  // Then run every 2 hours
+  // Then run every 5 minutes
   setInterval(async () => {
     await runBackgroundVerificationCheck();
-  }, TWO_HOURS);
+  }, FIVE_MINUTES);
   
-  console.log('[Background Verify] Scheduler started - will check every 2 hours');
+  console.log('[Background Verify] Scheduler started - checking every 5 minutes');
 }
 
 // Slash command definitions
