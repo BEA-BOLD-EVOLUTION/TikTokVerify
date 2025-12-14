@@ -8,8 +8,8 @@ A Discord bot that verifies users' TikTok accounts by checking for a unique code
 - 🎯 **Unique codes** - Bot generates server-specific codes (e.g., `JAIME-12345`)
 - ✅ **Automatic role assignment** - Verified users get a role automatically
 - 📋 **Verified users list** - Admins can view and export all verified users
-- 💾 **Persistent storage** - Redis-backed storage survives restarts and deployments
-- 🌐 **24/7 hosting ready** - Designed for Railway with Redis addon
+- 💾 **Persistent storage** - Redis-backed with file fallback for self-hosting
+- 🌐 **24/7 hosting ready** - Designed for Railway with Redis addon (or standalone with file storage)
 - 🏥 **Health checks** - Automatic checks every 4 hours to ensure TikTok access
 - 🔧 **Smart TikTok fetching** - Uses Android mobile headers + cache-busting to bypass CDN
 - 🔗 **Flexible input** - Accepts username (`bea.spoke`), handle (`@bea.spoke`), or full URL
@@ -149,11 +149,11 @@ Set these in Railway (or create a `.env` file locally):
 DISCORD_TOKEN=your_bot_token_here
 DISCORD_APPLICATION_ID=your_application_id_here
 DISCORD_PUBLIC_KEY=your_public_key_here
-REDIS_URL=redis://default:password@host:port
+REDIS_URL=redis://default:password@host:port (optional - uses file storage if not set)
 BOT_OWNER_ID=your_discord_user_id (optional)
 ```
 
-**Redis is required** for persistent storage that survives deployments.
+**Redis is optional** - the bot will use local JSON files for storage if `REDIS_URL` is not configured. Redis is recommended for production deployments on platforms like Railway where the filesystem is ephemeral.
 
 ---
 

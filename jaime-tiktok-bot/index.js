@@ -36,6 +36,7 @@ const BOT_OWNER_ID = process.env.BOT_OWNER_ID; // Bot owner's Discord user ID (s
 const VERIFIED_USERS_FILE = path.join(__dirname, 'verified-users.json');
 const PENDING_VERIFICATIONS_FILE = path.join(__dirname, 'pending-verifications.json');
 const GUILD_CONFIG_FILE = path.join(__dirname, 'guild-config.json');
+const VERIFICATION_LOG_FILE = path.join(__dirname, 'verification-log.json');
 
 // In-memory cache for guild configurations: { guildId: { verifiedRoleId: string } }
 const guildConfigs = new Map();
@@ -84,19 +85,28 @@ const pendingVerifications = new Map();
 //   initiatedAt, verifiedAt (optional)
 // }
 
-// Save a verification log entry to Redis
+// Save a verification log entry to Redis or file
 async function saveVerificationLog(guildId, discordId, entry) {
-  if (!redis) return false;
   try {
-    // Get existing logs for this guild
-    const key = `${REDIS_PREFIX}log:${guildId}`;
-    const existing = await redis.get(key);
-    const logs = existing ? JSON.parse(existing) : {};
-    
-    // Update or add entry
-    logs[discordId] = entry;
-    
-    await redis.set(key, JSON.stringify(logs));
+    if (redis) {
+      // Use Redis
+      const key = `${REDIS_PREFIX}log:${guildId}`;
+      const existing = await redis.get(key);
+      const logs = existing ? JSON.parse(existing) : {};
+      logs[discordId] = entry;
+      await redis.set(key, JSON.stringify(logs));
+    } else {
+      // Use file fallback
+      let allLogs = {};
+      try {
+        const data = await fsPromises.readFile(VERIFICATION_LOG_FILE, 'utf8');
+        allLogs = JSON.parse(data);
+      } catch (e) { /* File doesn't exist yet */ }
+      
+      if (!allLogs[guildId]) allLogs[guildId] = {};
+      allLogs[guildId][discordId] = entry;
+      await fsPromises.writeFile(VERIFICATION_LOG_FILE, JSON.stringify(allLogs, null, 2));
+    }
     console.log(`[VERIFY LOG] Saved ${entry.status} for ${entry.discordName} (@${entry.tiktokUsername}) in guild ${guildId}`);
     return true;
   } catch (err) {
@@ -107,11 +117,21 @@ async function saveVerificationLog(guildId, discordId, entry) {
 
 // Get all verification logs for a guild
 async function getVerificationLogs(guildId) {
-  if (!redis) return {};
   try {
-    const key = `${REDIS_PREFIX}log:${guildId}`;
-    const data = await redis.get(key);
-    return data ? JSON.parse(data) : {};
+    if (redis) {
+      const key = `${REDIS_PREFIX}log:${guildId}`;
+      const data = await redis.get(key);
+      return data ? JSON.parse(data) : {};
+    } else {
+      // Use file fallback
+      try {
+        const data = await fsPromises.readFile(VERIFICATION_LOG_FILE, 'utf8');
+        const allLogs = JSON.parse(data);
+        return allLogs[guildId] || {};
+      } catch (e) {
+        return {}; // File doesn't exist yet
+      }
+    }
   } catch (err) {
     console.error('[VERIFY LOG] Get error:', err.message);
     return {};
@@ -121,7 +141,6 @@ async function getVerificationLogs(guildId) {
 // Update verification status (pending -> verified/stale)
 // If entry doesn't exist, creates it with available data
 async function updateVerificationStatus(guildId, discordId, status, verifiedAt = null, extraData = {}) {
-  if (!redis) return false;
   try {
     const logs = await getVerificationLogs(guildId);
     if (logs[discordId]) {
@@ -130,9 +149,6 @@ async function updateVerificationStatus(guildId, discordId, status, verifiedAt =
       if (verifiedAt) logs[discordId].verifiedAt = verifiedAt;
       // Merge any extra data (like discordName, tiktokUsername for backfill)
       Object.assign(logs[discordId], extraData);
-      await redis.set(`${REDIS_PREFIX}log:${guildId}`, JSON.stringify(logs));
-      console.log(`[VERIFY LOG] Updated ${discordId} to ${status}`);
-      return true;
     } else if (Object.keys(extraData).length > 0) {
       // Create new entry if we have data to populate it
       logs[discordId] = {
@@ -141,12 +157,26 @@ async function updateVerificationStatus(guildId, discordId, status, verifiedAt =
         verifiedAt,
         ...extraData
       };
-      await redis.set(`${REDIS_PREFIX}log:${guildId}`, JSON.stringify(logs));
-      console.log(`[VERIFY LOG] Created new entry for ${discordId} with status ${status}`);
-      return true;
+    } else {
+      console.log(`[VERIFY LOG] No entry found for ${discordId} and no extra data provided`);
+      return false;
     }
-    console.log(`[VERIFY LOG] No entry found for ${discordId} and no extra data provided`);
-    return false;
+    
+    // Save the updated logs
+    if (redis) {
+      await redis.set(`${REDIS_PREFIX}log:${guildId}`, JSON.stringify(logs));
+    } else {
+      let allLogs = {};
+      try {
+        const data = await fsPromises.readFile(VERIFICATION_LOG_FILE, 'utf8');
+        allLogs = JSON.parse(data);
+      } catch (e) { /* File doesn't exist yet */ }
+      allLogs[guildId] = logs;
+      await fsPromises.writeFile(VERIFICATION_LOG_FILE, JSON.stringify(allLogs, null, 2));
+    }
+    
+    console.log(`[VERIFY LOG] Updated/Created ${discordId} to ${status}`);
+    return true;
   } catch (err) {
     console.error('[VERIFY LOG] Update error:', err.message);
     return false;
