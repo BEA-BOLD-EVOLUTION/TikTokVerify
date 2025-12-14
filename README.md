@@ -151,7 +151,8 @@ DISCORD_APPLICATION_ID=your_application_id_here
 DISCORD_PUBLIC_KEY=your_public_key_here
 REDIS_URL=redis://default:password@host:port (optional - uses file storage if not set)
 BOT_OWNER_ID=your_discord_user_id (optional)
-PROXY_URL=http://user:pass@proxy.example.com:port (optional - for avoiding TikTok rate limits)
+SCRAPER_API_KEY=your_scraperapi_key (recommended - bypasses TikTok anti-bot)
+PROXY_URL=http://user:pass@proxy.example.com:port (optional - alternative to ScraperAPI)
 ```
 
 **Redis is optional** - the bot will use local JSON files for storage if `REDIS_URL` is not configured. Redis is recommended for production deployments on platforms like Railway where the filesystem is ephemeral.

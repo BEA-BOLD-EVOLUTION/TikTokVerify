@@ -733,7 +733,7 @@ function getRandomUserAgent() {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 }
 
-// Get proxy agent if configured
+// Get proxy agent if configured (for PROXY_URL)
 function getProxyAgent() {
   const proxyUrl = process.env.PROXY_URL;
   if (proxyUrl) {
@@ -742,6 +742,9 @@ function getProxyAgent() {
   }
   return undefined;
 }
+
+// ScraperAPI configuration
+const SCRAPER_API_KEY = process.env.SCRAPER_API_KEY;
 
 async function fetchTikTokBio(username, attemptNum = 0) {
   const cleanUser = username.replace(/^@/, '').trim();
@@ -772,24 +775,36 @@ async function fetchTikTokBio(username, attemptNum = 0) {
 
   // Add cache-busting query parameter to try to get fresh content
   const cacheBuster = Date.now();
-  const url = `https://www.tiktok.com/@${cleanUser}?_cb=${cacheBuster}`;
+  const tiktokUrl = `https://www.tiktok.com/@${cleanUser}?_cb=${cacheBuster}`;
+  
+  // Use ScraperAPI if configured, otherwise direct fetch
+  let url;
+  if (SCRAPER_API_KEY) {
+    // ScraperAPI handles anti-bot, headers, proxies, etc.
+    url = `https://api.scraperapi.com/?api_key=${SCRAPER_API_KEY}&url=${encodeURIComponent(tiktokUrl)}&render=false`;
+    if (attemptNum === 0) console.log(`[ScraperAPI] Fetching @${cleanUser}`);
+  } else {
+    url = tiktokUrl;
+  }
 
   try {
-    // Add timeout using AbortController (10 second timeout)
+    // Add timeout using AbortController (15 second timeout for ScraperAPI, 10 for direct)
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeoutMs = SCRAPER_API_KEY ? 15000 : 10000;
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     
-    // Get proxy agent if configured
-    const agent = getProxyAgent();
-    
+    // Build fetch options
     const fetchOptions = { 
-      headers,
       signal: controller.signal,
     };
     
-    // Add proxy agent if available
-    if (agent) {
-      fetchOptions.agent = agent;
+    // Only add custom headers and proxy for direct requests (not ScraperAPI)
+    if (!SCRAPER_API_KEY) {
+      fetchOptions.headers = headers;
+      const agent = getProxyAgent();
+      if (agent) {
+        fetchOptions.agent = agent;
+      }
     }
     
     const res = await fetch(url, fetchOptions);
