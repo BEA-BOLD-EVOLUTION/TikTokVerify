@@ -151,9 +151,16 @@ DISCORD_APPLICATION_ID=your_application_id_here
 DISCORD_PUBLIC_KEY=your_public_key_here
 REDIS_URL=redis://default:password@host:port (optional - uses file storage if not set)
 BOT_OWNER_ID=your_discord_user_id (optional)
+PROXY_URL=http://user:pass@proxy.example.com:port (optional - for avoiding TikTok rate limits)
 ```
 
 **Redis is optional** - the bot will use local JSON files for storage if `REDIS_URL` is not configured. Redis is recommended for production deployments on platforms like Railway where the filesystem is ephemeral.
+
+**Proxy is optional** - if TikTok is blocking requests, you can configure a rotating proxy service. Recommended providers:
+- [Bright Data](https://brightdata.com/) - Residential proxies
+- [Oxylabs](https://oxylabs.io/) - Datacenter & residential
+- [SmartProxy](https://smartproxy.com/) - Budget-friendly option
+- [ScraperAPI](https://www.scraperapi.com/) - Simple API-based proxy
 
 ---
 

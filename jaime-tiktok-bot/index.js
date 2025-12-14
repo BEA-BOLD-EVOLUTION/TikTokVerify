@@ -3,6 +3,7 @@ const fs = require('fs');
 const fsPromises = require('fs').promises;
 const path = require('path');
 const Redis = require('ioredis');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 const {
   Client,
   GatewayIntentBits,
@@ -714,17 +715,50 @@ async function findSimilarUsernames(username) {
 // Based on https://github.com/rxxv/TiktokAccountInfo approach
 // Extracts data from embedded JSON in page (more reliable than HTML parsing)
 // Returns: { bio: string|null, accountNotFound: boolean, emptyBio: boolean }
+
+// Rotating user agents to avoid detection
+const USER_AGENTS = [
+  'Mozilla/5.0 (Linux; Android 8.0.0; Plume L2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.88 Mobile Safari/537.36',
+  'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+  'Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36',
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0.0.0 Mobile/15E148 Safari/604.1',
+  'Mozilla/5.0 (Linux; Android 12; SM-S908B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Mobile Safari/537.36',
+  'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+];
+
+// Get a random user agent
+function getRandomUserAgent() {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
+
+// Get proxy agent if configured
+function getProxyAgent() {
+  const proxyUrl = process.env.PROXY_URL;
+  if (proxyUrl) {
+    console.log('[Proxy] Using proxy for TikTok requests');
+    return new HttpsProxyAgent(proxyUrl);
+  }
+  return undefined;
+}
+
 async function fetchTikTokBio(username, attemptNum = 0) {
   const cleanUser = username.replace(/^@/, '').trim();
   
-  // Headers that mimic Android Chrome browser - more reliable than TikTok app UA
+  // Get random user agent for this request
+  const userAgent = getRandomUserAgent();
+  const isIOS = userAgent.includes('iPhone');
+  const isDesktop = userAgent.includes('Windows');
+  
+  // Headers that mimic browser - rotated per request
   const headers = {
     'Host': 'www.tiktok.com',
-    'sec-ch-ua': '" Not A;Brand";v="99", "Chromium";v="99", "Google Chrome";v="99"',
-    'sec-ch-ua-mobile': '?1',
-    'sec-ch-ua-platform': '"Android"',
+    'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+    'sec-ch-ua-mobile': isDesktop ? '?0' : '?1',
+    'sec-ch-ua-platform': isIOS ? '"iOS"' : (isDesktop ? '"Windows"' : '"Android"'),
     'upgrade-insecure-requests': '1',
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 8.0.0; Plume L2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.88 Mobile Safari/537.36',
+    'User-Agent': userAgent,
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
     'sec-fetch-site': 'none',
     'sec-fetch-mode': 'navigate',
@@ -745,10 +779,20 @@ async function fetchTikTokBio(username, attemptNum = 0) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     
-    const res = await fetch(url, { 
+    // Get proxy agent if configured
+    const agent = getProxyAgent();
+    
+    const fetchOptions = { 
       headers,
-      signal: controller.signal 
-    });
+      signal: controller.signal,
+    };
+    
+    // Add proxy agent if available
+    if (agent) {
+      fetchOptions.agent = agent;
+    }
+    
+    const res = await fetch(url, fetchOptions);
     clearTimeout(timeout);
 
     if (!res.ok) {
